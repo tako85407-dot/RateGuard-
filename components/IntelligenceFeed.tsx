@@ -13,23 +13,28 @@ import {
   Send,
   Zap,
   Cpu,
-  Search
+  Search,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData } from '../services/gemini';
-import { QuoteData, Comment } from '../types';
+import { deductCreditsAndSaveQuote, logAnalyticsEvent } from '../services/firebase';
+import { QuoteData, Comment, UserProfile } from '../types';
 
 interface IntelligenceFeedProps {
   quotes: QuoteData[];
   onAddQuote: (quote: QuoteData) => void;
   onUpdateQuote: (quote: QuoteData) => void;
+  userProfile: UserProfile | null;
+  onProfileUpdate?: (updates: Partial<UserProfile>) => void;
 }
 
-const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote, onUpdateQuote }) => {
+const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote, onUpdateQuote, userProfile, onProfileUpdate }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [activeQuoteId, setActiveQuoteId] = useState<string | null>(null);
   const [disputeModal, setDisputeModal] = useState<QuoteData | null>(null);
   const [newComment, setNewComment] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeQuote = quotes.find(q => q.id === activeQuoteId);
@@ -37,18 +42,25 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    // 1. Credit Check Client-Side
+    if (!userProfile || userProfile.credits <= 0) {
+      setErrorMsg("Insufficient Credits. Please upgrade to Enterprise or purchase a credit pack.");
+      return;
+    }
+
     setIsUploading(true);
+    setErrorMsg(null);
+    logAnalyticsEvent('analysis_started', { fileSize: file.size });
+
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const base64 = (e.target?.result as string).split(',')[1];
+        
+        // 2. AI Extraction
         const extracted = await extractQuoteData(base64);
         
-        // Lane Key Logic: Origin_Destination_CompanyID logic simulated
-        const companyId = "COMP99"; 
-        const laneKey = `${extracted.origin}_${extracted.destination}_${companyId}`.toUpperCase();
-        console.log(`Analyzing Lane Memory for: ${laneKey}`);
-
         const newQuote: QuoteData = {
           id: `Q-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
           ...extracted,
@@ -58,8 +70,30 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
           timestamp: Date.now(),
           notes: []
         };
-        onAddQuote(newQuote);
-      } catch (error) { console.error(error); } finally { setIsUploading(false); }
+
+        // 3. Atomic Transaction (Deduct Credit + Save Quote)
+        const result = await deductCreditsAndSaveQuote(userProfile.uid, newQuote);
+
+        if (result.success && result.newCredits !== undefined) {
+          onAddQuote(newQuote);
+          if (onProfileUpdate) {
+            onProfileUpdate({ credits: result.newCredits });
+          }
+          logAnalyticsEvent('analysis_complete', { 
+            carrier: newQuote.carrier, 
+            cost: newQuote.totalCost 
+          });
+        } else {
+          throw new Error(result.error || "Transaction failed");
+        }
+
+      } catch (error: any) { 
+        console.error(error); 
+        setErrorMsg(error.toString());
+        logAnalyticsEvent('error_boundary', { message: 'analysis_failed', error: error.toString() });
+      } finally { 
+        setIsUploading(false); 
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -74,7 +108,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     if (!activeQuote || !newComment) return;
     const comment: Comment = {
       id: Date.now().toString(),
-      user: 'Manager',
+      user: userProfile?.displayName || 'Manager',
       text: newComment,
       timestamp: Date.now()
     };
@@ -96,15 +130,35 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         </div>
         
         <div 
-          onClick={() => fileInputRef.current?.click()}
-          className="relative h-48 border-2 border-dashed border-zinc-800 bg-[#161c28]/40 hover:bg-[#1c2436]/60 rounded-[2rem] flex flex-col items-center justify-center cursor-pointer transition-all group overflow-hidden"
+          onClick={() => {
+            if (userProfile && userProfile.credits > 0) {
+              fileInputRef.current?.click();
+            } else {
+              setErrorMsg("Insufficient Credits to process.");
+            }
+          }}
+          className={`relative h-48 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center cursor-pointer transition-all group overflow-hidden ${
+            userProfile?.credits === 0 
+              ? 'border-red-500/20 bg-red-500/5 hover:bg-red-500/10' 
+              : 'border-zinc-800 bg-[#161c28]/40 hover:bg-[#1c2436]/60'
+          }`}
         >
           <input type="file" className="hidden" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" />
+          
           <div className="space-y-4 text-center">
-            <FileText className="text-zinc-600 group-hover:text-blue-500 mx-auto transition-colors" size={40} />
+            {userProfile?.credits === 0 ? (
+              <Lock className="text-red-500 mx-auto" size={40} />
+            ) : (
+              <FileText className="text-zinc-600 group-hover:text-blue-500 mx-auto transition-colors" size={40} />
+            )}
+            
             <div>
-              <p className="text-[10px] font-black tracking-[0.3em] text-zinc-500 uppercase">Drop Carrier Quote</p>
-              <p className="text-[9px] font-bold text-zinc-700 uppercase mt-1">PDF / JPG / PNG Node Input</p>
+              <p className={`text-[10px] font-black tracking-[0.3em] uppercase ${userProfile?.credits === 0 ? 'text-red-500' : 'text-zinc-500'}`}>
+                {userProfile?.credits === 0 ? "Credits Depleted" : "Drop Carrier Quote"}
+              </p>
+              <p className="text-[9px] font-bold text-zinc-700 uppercase mt-1">
+                {userProfile?.credits === 0 ? "Purchase Enterprise Pack to Continue" : "PDF / JPG / PNG Node Input"}
+              </p>
             </div>
           </div>
 
@@ -137,8 +191,26 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                     <Cpu className="text-blue-500 animate-spin-slow" size={20} />
                     <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] animate-pulse">Atlas Neural Extraction...</span>
                   </div>
-                  <div className="text-[9px] font-mono text-zinc-600 uppercase">Resolving OCR Entities | Normalizing Lane Memory</div>
+                  <div className="text-[9px] font-mono text-zinc-600 uppercase">Securing Firestore Transaction...</div>
                 </div>
+              </motion.div>
+            )}
+            
+            {errorMsg && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-[#0e121b]/95 flex flex-col items-center justify-center rounded-[2rem] backdrop-blur-xl z-20 text-center p-8 space-y-4"
+              >
+                <AlertTriangle className="text-red-500" size={48} />
+                <div className="text-red-500 font-bold">{errorMsg}</div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setErrorMsg(null); }}
+                  className="px-6 py-3 bg-zinc-800 rounded-xl text-xs font-bold uppercase tracking-widest text-white hover:bg-zinc-700"
+                >
+                  Dismiss
+                </button>
               </motion.div>
             )}
           </AnimatePresence>

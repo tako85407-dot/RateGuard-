@@ -43,6 +43,17 @@ export interface CompanyProfile {
   currency: string;
 }
 
+export interface UserProfile {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  credits: number;
+  tier: 'free' | 'pro' | 'enterprise';
+  stripeId?: string;
+  createdAt?: any;
+  lastSeen?: any;
+}
+
 export type AppView = 'landing' | 'onboarding' | 'dashboard' | 'quotes' | 'history' | 'analysis' | 'settings' | 'billing' | 'studio' | 'support' | 'scorecards' | 'team' | 'privacy' | 'terms' | 'cookies' | 'payment';
 
 export enum ImageSize {

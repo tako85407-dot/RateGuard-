@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   LogOut, Bell, Menu, X, LayoutDashboard, Settings as SettingsIcon, 
   HelpCircle, ChevronRight, FileText, History, Users, Award, BarChart2,
-  Shield, Scale, Cookie, CreditCard, ChevronLeft
+  Shield, Scale, Cookie, CreditCard, ChevronLeft, Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './Sidebar';
@@ -22,15 +22,17 @@ import PrivacyPolicy from './PrivacyPolicy';
 import TermsAndConditions from './TermsAndConditions';
 import CookiePolicy from './CookiePolicy';
 import PaymentPage from './PaymentPage';
-import { AppView, QuoteData } from '../types';
+import { AppView, QuoteData, UserProfile } from '../types';
 
 interface DashboardProps {
   currentView: AppView;
   onViewChange: (view: AppView) => void;
   onLogout: () => void;
+  userProfile: UserProfile | null;
+  onProfileUpdate?: (updates: Partial<UserProfile>) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogout }) => {
+const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogout, userProfile, onProfileUpdate }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
   const navMenuRef = useRef<HTMLDivElement>(null);
@@ -50,21 +52,6 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
       reliabilityScore: 92,
       timestamp: Date.now() - 7200000,
       notes: []
-    },
-    {
-      id: 'Q-240124-B',
-      carrier: 'MSC',
-      origin: 'SEA',
-      destination: 'LAX',
-      weight: 200,
-      totalCost: 1200,
-      surcharges: [{ name: 'BAF', amount: 150 }],
-      transitTime: '10 days',
-      status: 'analyzed',
-      workflowStatus: 'reviewed',
-      reliabilityScore: 65,
-      timestamp: Date.now() - 10800000,
-      notes: [{ id: '1', user: 'Processor', text: 'Cheapest option, but reliability is flagging.', timestamp: Date.now() }]
     }
   ]);
 
@@ -94,7 +81,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
   const renderView = () => {
     switch (currentView) {
       case 'dashboard': return <DashboardHome quotes={quotes} onViewChange={onViewChange} onUpdateQuote={updateQuote} />;
-      case 'quotes': return <IntelligenceFeed quotes={quotes} onAddQuote={addQuote} onUpdateQuote={updateQuote} />;
+      case 'quotes': return <IntelligenceFeed quotes={quotes} onAddQuote={addQuote} onUpdateQuote={updateQuote} userProfile={userProfile} onProfileUpdate={onProfileUpdate} />;
       case 'history': return <QuoteHistory quotes={quotes} />;
       case 'analysis': return <LaneAnalysis quotes={quotes} />;
       case 'team': return <TeamWorkspace />;
@@ -169,11 +156,19 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
                 )}
               </AnimatePresence>
             </div>
-            <h1 className="text-xs font-black tracking-[0.2em] text-zinc-400 uppercase">
+            <h1 className="text-xs font-black tracking-[0.2em] text-zinc-400 uppercase hidden sm:block">
               Operational Terminal
             </h1>
           </div>
           <div className="flex items-center gap-4">
+            {/* Credit Display */}
+            {userProfile && (
+               <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-lg border border-zinc-800">
+                  <Zap size={12} className={userProfile.credits > 0 ? "text-yellow-500 fill-yellow-500" : "text-zinc-600"} />
+                  <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">{userProfile.credits} Credits</span>
+               </div>
+            )}
+
             <button onClick={() => onViewChange('payment')} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all hidden sm:block">
               Activate Defense
             </button>
