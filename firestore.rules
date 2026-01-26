@@ -1,0 +1,30 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User Profiles: Users can read/write their own profile
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Settings: Users can read/write their own settings
+    match /settings/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Quotes: Users can only create quotes for themselves and read their own
+    match /quotes/{quoteId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid 
+                    && request.resource.data.pdfBase64.size() < 1048576; // Max 1MB
+    }
+    
+    // Transactions: Users can read their own transactions. Only server (via functions) or strict logic should write, but for this client-side demo:
+    // Allow create if userId matches.
+    match /transactions/{txnId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

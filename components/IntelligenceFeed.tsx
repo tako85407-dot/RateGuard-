@@ -3,22 +3,18 @@ import React, { useState, useRef } from 'react';
 import { 
   FileText, 
   Loader2, 
-  Info,
-  ChevronDown,
   AlertTriangle,
   Mail,
-  CheckCircle,
   MessageSquare,
   X,
   Send,
-  Zap,
   Cpu,
   Search,
   Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData } from '../services/gemini';
-import { deductCreditsAndSaveQuote, logAnalyticsEvent } from '../services/firebase';
+import { saveQuoteToFirestore, logAnalyticsEvent } from '../services/firebase';
 import { QuoteData, Comment, UserProfile } from '../types';
 
 interface IntelligenceFeedProps {
@@ -43,9 +39,18 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // 1. Credit Check Client-Side
-    if (!userProfile || userProfile.credits <= 0) {
-      setErrorMsg("Insufficient Credits. Please upgrade to Enterprise or purchase a credit pack.");
+    // 0. File Size Check (Firestore Limit < 1MB)
+    if (file.size > 1000000) { // 1MB Safe margin
+      setErrorMsg("File Size Exceeded. PDF/Image must be under 1MB for Firestore storage.");
+      return;
+    }
+
+    // 1. Credit / Role Check
+    const hasCredits = userProfile && userProfile.credits > 0;
+    const isEnterprise = userProfile && userProfile.role === 'enterprise';
+    
+    if (!userProfile || (!hasCredits && !isEnterprise)) {
+      setErrorMsg("Insufficient Credits. Please upgrade to Enterprise.");
       return;
     }
 
@@ -61,30 +66,40 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         // 2. AI Extraction
         const extracted = await extractQuoteData(base64);
         
-        const newQuote: QuoteData = {
-          id: `Q-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-          ...extracted,
-          status: extracted.totalCost > 2000 ? 'flagged' : 'analyzed',
-          workflowStatus: 'uploaded',
-          reliabilityScore: 85,
-          timestamp: Date.now(),
-          notes: []
-        };
+        // 3. Save to Firestore (Quotes Collection)
+        const result = await saveQuoteToFirestore(
+          userProfile.uid, 
+          extracted, 
+          base64, 
+          extracted // geminiRaw
+        );
 
-        // 3. Atomic Transaction (Deduct Credit + Save Quote)
-        const result = await deductCreditsAndSaveQuote(userProfile.uid, newQuote);
+        if (result.success && result.id) {
+          // Construct local object for UI
+          const newQuote: QuoteData = {
+             id: result.id,
+             userId: userProfile.uid,
+             ...extracted,
+             status: extracted.totalCost > 2000 ? 'flagged' : 'analyzed',
+             workflowStatus: 'uploaded',
+             reliabilityScore: 85,
+             timestamp: Date.now(),
+             notes: []
+          };
 
-        if (result.success && result.newCredits !== undefined) {
           onAddQuote(newQuote);
-          if (onProfileUpdate) {
-            onProfileUpdate({ credits: result.newCredits });
+          
+          // Optimistically update credits locally
+          if (onProfileUpdate && !isEnterprise) {
+            onProfileUpdate({ credits: (userProfile.credits || 0) - 1 });
           }
+          
           logAnalyticsEvent('analysis_complete', { 
             carrier: newQuote.carrier, 
             cost: newQuote.totalCost 
           });
         } else {
-          throw new Error(result.error || "Transaction failed");
+          throw new Error(result.error || "Database Transaction failed");
         }
 
       } catch (error: any) { 
@@ -122,42 +137,42 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Review Queue</h2>
           <div className="flex gap-4">
+             {/* Team Indicators */}
              <div className="flex -space-x-2">
                 {[1, 2].map(i => <div key={i} className="w-8 h-8 rounded-full border-2 border-[#0e121b] bg-zinc-800 flex items-center justify-center text-[10px] font-bold">U{i}</div>)}
-                <div className="w-8 h-8 rounded-full border-2 border-[#0e121b] bg-blue-600 flex items-center justify-center text-[10px] font-bold">+1</div>
              </div>
           </div>
         </div>
         
         <div 
           onClick={() => {
-            if (userProfile && userProfile.credits > 0) {
+            if (userProfile && (userProfile.credits > 0 || userProfile.role === 'enterprise')) {
               fileInputRef.current?.click();
             } else {
               setErrorMsg("Insufficient Credits to process.");
             }
           }}
           className={`relative h-48 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center cursor-pointer transition-all group overflow-hidden ${
-            userProfile?.credits === 0 
+            userProfile?.credits === 0 && userProfile.role !== 'enterprise'
               ? 'border-red-500/20 bg-red-500/5 hover:bg-red-500/10' 
               : 'border-zinc-800 bg-[#161c28]/40 hover:bg-[#1c2436]/60'
           }`}
         >
-          <input type="file" className="hidden" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" />
+          <input type="file" className="hidden" ref={fileInputRef} onChange={handleFileUpload} accept="application/pdf,image/*" />
           
           <div className="space-y-4 text-center">
-            {userProfile?.credits === 0 ? (
+            {userProfile?.credits === 0 && userProfile.role !== 'enterprise' ? (
               <Lock className="text-red-500 mx-auto" size={40} />
             ) : (
               <FileText className="text-zinc-600 group-hover:text-blue-500 mx-auto transition-colors" size={40} />
             )}
             
             <div>
-              <p className={`text-[10px] font-black tracking-[0.3em] uppercase ${userProfile?.credits === 0 ? 'text-red-500' : 'text-zinc-500'}`}>
-                {userProfile?.credits === 0 ? "Credits Depleted" : "Drop Carrier Quote"}
+              <p className={`text-[10px] font-black tracking-[0.3em] uppercase ${userProfile?.credits === 0 && userProfile.role !== 'enterprise' ? 'text-red-500' : 'text-zinc-500'}`}>
+                {userProfile?.credits === 0 && userProfile.role !== 'enterprise' ? "Credits Depleted" : "Drop Carrier Quote"}
               </p>
               <p className="text-[9px] font-bold text-zinc-700 uppercase mt-1">
-                {userProfile?.credits === 0 ? "Purchase Enterprise Pack to Continue" : "PDF / JPG / PNG Node Input"}
+                {userProfile?.credits === 0 && userProfile.role !== 'enterprise' ? "Upgrade to Enterprise for Unlimited" : "PDF / JPG (Max 1MB)"}
               </p>
             </div>
           </div>
@@ -170,28 +185,12 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                 exit={{ opacity: 0 }}
                 className="absolute inset-0 bg-[#0e121b]/95 flex flex-col items-center justify-center rounded-[2rem] backdrop-blur-xl z-20"
               >
-                {/* Scanning Animation */}
-                <div className="relative w-full max-w-xs h-32 mb-8 overflow-hidden rounded-xl border border-blue-500/20 bg-zinc-950/50">
-                  <motion.div 
-                    initial={{ top: "-10%" }}
-                    animate={{ top: "110%" }}
-                    transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                    className="absolute left-0 w-full h-1 bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,1)] z-10"
-                  />
-                  <div className="p-4 space-y-3 opacity-30">
-                    <div className="h-2 w-3/4 bg-blue-500/20 rounded" />
-                    <div className="h-2 w-1/2 bg-blue-500/20 rounded" />
-                    <div className="h-2 w-2/3 bg-blue-500/20 rounded" />
-                    <div className="h-2 w-1/3 bg-blue-500/20 rounded" />
-                  </div>
-                </div>
-
                 <div className="flex flex-col items-center gap-4">
                   <div className="flex items-center gap-3">
                     <Cpu className="text-blue-500 animate-spin-slow" size={20} />
-                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] animate-pulse">Atlas Neural Extraction...</span>
+                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] animate-pulse">Gemini Extraction...</span>
                   </div>
-                  <div className="text-[9px] font-mono text-zinc-600 uppercase">Securing Firestore Transaction...</div>
+                  <div className="text-[9px] font-mono text-zinc-600 uppercase">Encrypting & Storing in Firestore...</div>
                 </div>
               </motion.div>
             )}
@@ -250,7 +249,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                            <div className="w-16 h-1 bg-zinc-800 rounded-full overflow-hidden">
                               <div className={`h-full ${q.reliabilityScore > 80 ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${q.reliabilityScore}%` }} />
                            </div>
-                           <span className="text-[9px] font-bold text-zinc-600">{q.reliabilityScore}% REL.</span>
                         </div>
                       </div>
                     </td>
@@ -262,7 +260,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                             <button 
                               onClick={(e) => { e.stopPropagation(); setDisputeModal(q); }}
                               className="p-2.5 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all border border-red-500/20 shadow-lg shadow-red-500/5"
-                              title="Atlas Auto-Dispute"
                             >
                               <Mail size={16} />
                             </button>
@@ -322,64 +319,12 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                />
                <button 
                  onClick={addComment}
-                 className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-blue-500/10"
+                 className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] uppercase tracking-widest rounded-2xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-blue-500/10"
                >
                  <Send size={14} /> Update Context
                </button>
             </div>
           </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Auto-Dispute Modal */}
-      <AnimatePresence>
-        {disputeModal && (
-          <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[250] flex items-center justify-center p-6">
-             <motion.div 
-               initial={{ scale: 0.9, opacity: 0, y: 20 }}
-               animate={{ scale: 1, opacity: 1, y: 0 }}
-               className="bg-[#121826] border border-zinc-800 w-full max-w-2xl rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(239,68,68,0.15)]"
-             >
-                <div className="bg-gradient-to-r from-red-600 to-rose-800 p-10 flex items-center justify-between">
-                   <div className="flex items-center gap-4">
-                      <Zap className="text-white animate-pulse" />
-                      <h3 className="text-3xl font-black text-white tracking-tighter uppercase leading-none">Atlas Dispute Hub</h3>
-                   </div>
-                   <button onClick={() => setDisputeModal(null)} className="text-white/60 hover:text-white"><X size={24} /></button>
-                </div>
-                <div className="p-10 space-y-8">
-                   <div className="p-6 bg-zinc-950 rounded-[1.5rem] border border-zinc-800 space-y-6">
-                      <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center justify-between">
-                        <span>Drafting Channel: SMTP_TLS_SECURE</span>
-                        <span className="text-red-500">Margin Drift: +11.4%</span>
-                      </div>
-                      <div className="text-xs text-zinc-400 font-mono leading-relaxed h-56 overflow-y-auto pr-4 custom-scrollbar">
-                        <span className="text-zinc-600 font-bold">To:</span> ops-pricing@{disputeModal.carrier.toLowerCase().replace(/\s/g, '')}.com<br/>
-                        <span className="text-zinc-600 font-bold">Subject:</span> [DISPUTE] Lane Margin Drift - {disputeModal.origin} to {disputeModal.destination}<br/><br/>
-                        Hi {disputeModal.carrier} Team,<br/><br/>
-                        We are reviewing Quote #{disputeModal.id}. Our Atlas automated audit has detected a fuel surcharge (BAF) deviation of +$75.00 compared to our core agreement and historical lane memory.<br/><br/>
-                        This represents a drift from the agreed-upon index. Please provide a revised quote aligning with our standard tariff to avoid further escalation in our quarterly Carrier Scorecard review.<br/><br/>
-                        Regards,<br/>
-                        RateGuard Operations Node
-                      </div>
-                   </div>
-                   <div className="flex gap-4">
-                      <button 
-                        onClick={() => {
-                          onUpdateQuote({ ...disputeModal, disputeDrafted: true });
-                          setDisputeModal(null);
-                        }}
-                        className="flex-1 py-5 bg-white text-[#121826] font-black uppercase tracking-widest text-xs rounded-2xl shadow-2xl hover:bg-zinc-200 transition-all flex items-center justify-center gap-3"
-                      >
-                        <Send size={18} /> Transmit Dispute
-                      </button>
-                      <button className="flex-1 py-5 bg-zinc-900 text-zinc-500 font-black uppercase tracking-widest text-xs rounded-2xl border border-zinc-800 hover:text-white transition-colors">
-                        Refine Parameters
-                      </button>
-                   </div>
-                </div>
-             </motion.div>
-          </div>
         )}
       </AnimatePresence>
     </div>

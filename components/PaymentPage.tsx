@@ -1,38 +1,84 @@
 
-import React, { useEffect } from 'react';
-import { ShieldCheck, Zap, CheckCircle, ArrowRight, CreditCard, Sparkles, Clock } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ShieldCheck, Zap, CheckCircle, CreditCard, Sparkles, Clock, Loader2 } from 'lucide-react';
 import { PRICING_PLAN } from '../constants';
+import { processEnterpriseUpgrade } from '../services/firebase';
+import { auth } from '../services/firebase';
 
 const PaymentPage: React.FC = () => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [success, setSuccess] = useState(false);
+
   useEffect(() => {
-    // Check if PayPal SDK is loaded and render the button
+    // Determine the current user UID
+    const uid = auth.currentUser?.uid;
+
     const renderPaypalButton = () => {
       const paypal = (window as any).paypal;
-      const containerId = 'paypal-button-container-P-4N979922222500015NF2NIXY';
+      const containerId = 'paypal-button-container';
       const container = document.getElementById(containerId);
 
       if (paypal && container && container.innerHTML === '') {
         paypal.Buttons({
           style: {
             shape: 'rect',
-            color: 'silver',
+            color: 'blue',
             layout: 'vertical',
-            label: 'subscribe'
+            label: 'pay'
           },
-          createSubscription: function(data: any, actions: any) {
-            return actions.subscription.create({
-              plan_id: 'P-4N979922222500015NF2NIXY'
+          createOrder: function(data: any, actions: any) {
+            // Enterprise Tier: $200 + 15.5% Tax = $231.00 Total
+            return actions.order.create({
+              purchase_units: [{
+                amount: {
+                  value: '231.00',
+                  breakdown: {
+                    item_total: { value: '200.00', currency_code: 'USD' },
+                    tax_total: { value: '31.00', currency_code: 'USD' }
+                  }
+                },
+                description: 'RateGuard Enterprise License (Inc. Tax)'
+              }]
             });
           },
           onApprove: function(data: any, actions: any) {
-            alert('Subscription successful! ID: ' + data.subscriptionID);
+            setIsProcessing(true);
+            return actions.order.capture().then(async function(details: any) {
+              if (uid) {
+                // Record Transaction and Upgrade User
+                const upgraded = await processEnterpriseUpgrade(uid, details.id);
+                if (upgraded) {
+                  setSuccess(true);
+                  alert('Enterprise License Activated. Welcome to RateGuard Elite.');
+                  // Redirect or refresh logic would happen here in a full router context
+                  window.location.reload(); 
+                }
+              }
+              setIsProcessing(false);
+            });
           }
         }).render('#' + containerId);
       }
     };
 
-    renderPaypalButton();
-  }, []);
+    if (!success) {
+      renderPaypalButton();
+    }
+  }, [success]);
+
+  if (success) {
+     return (
+        <div className="flex items-center justify-center min-h-[60vh] text-center">
+           <div className="space-y-6">
+              <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-500 mx-auto">
+                 <CheckCircle size={48} />
+              </div>
+              <h2 className="text-3xl font-black text-white uppercase">License Activated</h2>
+              <p className="text-zinc-500">Your enterprise node is now fully operational.</p>
+           </div>
+        </div>
+     );
+  }
 
   return (
     <div className="max-w-6xl mx-auto py-10 px-4 space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
@@ -46,8 +92,7 @@ const PaymentPage: React.FC = () => {
           Activate Your <br /> <span className="text-blue-500">Defense Terminal</span>
         </h1>
         <p className="text-zinc-500 max-w-2xl mx-auto font-medium text-lg leading-relaxed">
-          Secure the Global Enterprise license and protect your logistics margins with Atlas AI. 
-          Your first <span className="text-white font-bold">10 days are completely free</span>.
+          Secure the Global Enterprise license. One-time activation for the current cycle.
         </p>
       </div>
 
@@ -61,9 +106,8 @@ const PaymentPage: React.FC = () => {
 
           <div className="grid gap-6">
             {[
-              { icon: <Zap className="text-blue-500" />, title: "Unlimited Atlas AI Audits", desc: "Process thousands of PDFs/JPGs without tiered pricing caps." },
+              { icon: <Zap className="text-blue-500" />, title: "Unlimited Atlas AI Audits", desc: "Process unlimited PDFs/JPGs without caps." },
               { icon: <Sparkles className="text-purple-500" />, title: "Profit Guard™ Memory", desc: "AI-driven comparison against your own historical lane rates." },
-              { icon: <Clock className="text-emerald-500" />, title: "10-Day Free Trial", desc: "Full access to all features. Your card won't be charged until day 11." },
               { icon: <CheckCircle className="text-indigo-500" />, title: "Auto-Dispute Engine", desc: "One-click professional emails to carriers for surcharge drift." }
             ].map((benefit, i) => (
               <div key={i} className="flex gap-5 group">
@@ -88,6 +132,13 @@ const PaymentPage: React.FC = () => {
 
         {/* Payment Action Panel */}
         <div className="bg-white rounded-[2.5rem] p-10 text-zinc-950 space-y-8 shadow-2xl relative overflow-hidden">
+          {isProcessing && (
+             <div className="absolute inset-0 bg-white/90 z-50 flex items-center justify-center flex-col gap-4">
+                <Loader2 className="animate-spin text-blue-600" size={40} />
+                <span className="font-black uppercase tracking-widest text-xs">Provisioning Enterprise Node...</span>
+             </div>
+          )}
+
           <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
             <CreditCard size={120} className="text-black" />
           </div>
@@ -95,19 +146,11 @@ const PaymentPage: React.FC = () => {
           <div className="space-y-2 relative z-10">
             <div className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600">Enterprise Standard</div>
             <div className="flex items-baseline gap-2">
-              <span className="text-6xl font-black tracking-tighter">${PRICING_PLAN.price}</span>
-              <span className="text-zinc-500 text-xl font-black">/mo</span>
+              <span className="text-6xl font-black tracking-tighter">$231</span>
+              <span className="text-zinc-500 text-xl font-black">USD</span>
             </div>
-          </div>
-
-          <div className="p-6 bg-zinc-100 rounded-3xl border border-zinc-200 relative z-10">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-blue-600 rounded-lg text-white"><Clock size={16} /></div>
-              <span className="text-sm font-black uppercase tracking-widest text-zinc-700">10-Day Trial Active</span>
-            </div>
-            <p className="text-xs text-zinc-600 leading-relaxed font-medium">
-              Start your subscription today. You will not be billed until the trial period ends. 
-              Cancel anytime from your dashboard.
+            <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest">
+              Includes $31.00 Tax (15.5%)
             </p>
           </div>
 
@@ -116,12 +159,12 @@ const PaymentPage: React.FC = () => {
               Secure Checkout via PayPal
             </div>
             {/* PayPal Button Container */}
-            <div id="paypal-button-container-P-4N979922222500015NF2NIXY" className="min-h-[150px]"></div>
+            <div id="paypal-button-container" className="min-h-[150px]"></div>
           </div>
 
           <div className="flex items-center justify-center gap-2 text-[9px] font-black text-zinc-400 uppercase tracking-widest pt-4 border-t border-zinc-100">
             <ShieldCheck size={12} />
-            Money-back guarantee within first month
+            Instant Activation upon payment
           </div>
         </div>
       </div>

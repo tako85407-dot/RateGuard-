@@ -1,16 +1,16 @@
 
-import { initializeApp } from "firebase/app";
-import { getAnalytics, logEvent as firebaseLogEvent } from "firebase/analytics";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  sendEmailVerification, 
-  signOut, 
-  onAuthStateChanged,
-  User 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  updateProfile,
+  onAuthStateChanged as onFirebaseAuthStateChanged,
+  User as FirebaseUser,
+  signOut as firebaseSignOut
 } from "firebase/auth";
 import { 
   getFirestore, 
@@ -18,126 +18,216 @@ import {
   getDoc, 
   setDoc, 
   updateDoc, 
-  serverTimestamp, 
-  runTransaction,
-  collection
+  collection, 
+  addDoc,
+  serverTimestamp,
+  increment
 } from "firebase/firestore";
 import { UserProfile, QuoteData } from "../types";
 
+// --- CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyC9dJAyiVilxlyr_KJX1lw1kH_exFzheas",
-  authDomain: "rateguard-a46d6.firebaseapp.com",
-  projectId: "rateguard-a46d6",
-  storageBucket: "rateguard-a46d6.firebasestorage.app",
-  messagingSenderId: "43714758111",
-  appId: "1:43714758111:web:49b7ecab330ef69c21306a",
-  measurementId: "G-Y19ZXQKFEZ"
+  apiKey: "AIzaSyAP_fpKfZ4gANhlNzUBhJbFKHWRauEF7hc",
+  authDomain: "rateguard-3d8b9.firebaseapp.com",
+  projectId: "rateguard-3d8b9",
+  storageBucket: "rateguard-3d8b9.firebasestorage.app",
+  messagingSenderId: "811913626284",
+  appId: "1:811913626284:web:db6d49f5d8ce3ad12c1509"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+// --- INITIALIZATION ---
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
-// --- Analytics Helper ---
-export const logAnalyticsEvent = (eventName: string, params?: any) => {
-  try {
-    firebaseLogEvent(analytics, eventName, params);
-  } catch (e) {
-    console.warn("Analytics Error:", e);
+export { auth, db, googleProvider };
+
+// --- HELPER: USER HANDSHAKE ---
+// Ensures Firestore document exists for the auth user
+export const initializeUserProfile = async (user: FirebaseUser) => {
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
+
+  if (!userSnap.exists()) {
+    // New User Handshake
+    const newProfile = {
+      email: user.email,
+      displayName: user.displayName || 'Agent',
+      role: "free",
+      credits: 5,
+      createdAt: Date.now(),
+      lastSeen: Date.now(),
+      // country & taxID will be collected in Onboarding
+    };
+
+    const defaultSettings = {
+      preferredCurrency: "USD",
+      theme: "dark",
+      notifications: { email: true }
+    };
+
+    await setDoc(userRef, newProfile);
+    await setDoc(doc(db, "settings", user.uid), defaultSettings);
+    return true; // isNewUser
+  } else {
+    // Existing User - Update last seen
+    await updateDoc(userRef, { lastSeen: Date.now() });
+    return false; // isNewUser
   }
 };
 
-// --- User Synchronization (The "Upsert" Pattern) ---
-export const syncUserToFirestore = async (user: User): Promise<UserProfile | null> => {
-  if (!user) return null;
+// --- AUTH LOGIC ---
 
-  const userRef = doc(db, "users", user.uid);
-  
+// 1. Google Sign In
+export const handleGoogleSignIn = async (): Promise<{ user: FirebaseUser; isNewUser: boolean }> => {
   try {
-    const userSnap = await getDoc(userRef);
-
-    if (userSnap.exists()) {
-      // User exists: Update lastSeen
-      await updateDoc(userRef, {
-        lastSeen: serverTimestamp()
-      });
-      logAnalyticsEvent('auth_success', { method: 'existing_user' });
-      return userSnap.data() as UserProfile;
-    } else {
-      // User missing: Create new doc with default credits
-      const newUserProfile: UserProfile = {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        credits: 5, // Free trial credits
-        tier: 'free',
-        createdAt: serverTimestamp(),
-        lastSeen: serverTimestamp()
-      };
-      
-      await setDoc(userRef, newUserProfile);
-      logAnalyticsEvent('auth_success', { method: 'new_signup' });
-      return newUserProfile;
-    }
+    const result = await signInWithPopup(auth, googleProvider);
+    const isNewUser = await initializeUserProfile(result.user);
+    return { user: result.user, isNewUser };
   } catch (error) {
-    console.error("Error syncing user profile:", error);
-    logAnalyticsEvent('error_boundary', { message: 'firestore_sync_failed' });
+    console.error("Google Sign-In Error:", error);
+    throw error;
+  }
+};
+
+// 2. Email Sign Up
+export const handleEmailSignUp = async (email: string, pass: string, name: string) => {
+  try {
+    const res = await createUserWithEmailAndPassword(auth, email, pass);
+    await updateProfile(res.user, { displayName: name });
+    await sendEmailVerification(res.user);
+    // CRITICAL: Sign out immediately. User must verify before accessing the app.
+    await firebaseSignOut(auth);
+    return true;
+  } catch (error) {
+    console.error("Sign Up Error:", error);
+    throw error;
+  }
+};
+
+// 3. Email Sign In
+export const handleEmailSignIn = async (email: string, pass: string) => {
+  try {
+    const res = await signInWithEmailAndPassword(auth, email, pass);
+    
+    if (!res.user.emailVerified) {
+      await firebaseSignOut(auth);
+      throw new Error("Email not verified. Please check your inbox.");
+    }
+
+    // Handshake on successful verified login
+    await initializeUserProfile(res.user);
+    return res.user;
+  } catch (error) {
+    console.error("Sign In Error:", error);
+    throw error;
+  }
+};
+
+export const resendVerification = async (user: FirebaseUser) => {
+  await sendEmailVerification(user);
+}
+
+export const signOut = async () => {
+  await firebaseSignOut(auth);
+};
+
+export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => {
+  return onFirebaseAuthStateChanged(auth, cb);
+};
+
+// --- DATABASE OPERATIONS ---
+
+export const syncUserToFirestore = async (user: FirebaseUser): Promise<UserProfile | null> => {
+  try {
+    const userRef = doc(db, "users", user.uid);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      return { uid: user.uid, ...userSnap.data() } as UserProfile;
+    }
+    // Self-healing: If user is verified but doc missing, create it now
+    if (user.emailVerified) {
+       await initializeUserProfile(user);
+       const retrySnap = await getDoc(userRef);
+       if (retrySnap.exists()) return { uid: user.uid, ...retrySnap.data() } as UserProfile;
+    }
+    return null;
+  } catch (error) {
+    console.error("Sync Profile Error:", error);
     return null;
   }
 };
 
-// --- The Analysis Transaction (Atomic Operation) ---
-export const deductCreditsAndSaveQuote = async (userId: string, quoteData: QuoteData): Promise<{ success: boolean; newCredits?: number; error?: string }> => {
-  const userRef = doc(db, "users", userId);
-  const quoteRef = doc(collection(db, "quotes")); // Auto-ID
-
+export const saveQuoteToFirestore = async (userId: string, quoteData: Partial<QuoteData>, pdfBase64: string, geminiRaw: any) => {
   try {
-    return await runTransaction(db, async (transaction) => {
-      const userDoc = await transaction.get(userRef);
-      if (!userDoc.exists()) {
-        throw "User does not exist!";
-      }
+    const quoteSize = new Blob([pdfBase64]).size;
+    if (quoteSize > 1048487) {
+       throw new Error("File too large for direct DB storage. Must be < 1MB.");
+    }
 
-      const userData = userDoc.data() as UserProfile;
-      const currentCredits = userData.credits || 0;
+    const newQuote = {
+      userId,
+      status: quoteData.totalCost && quoteData.totalCost > 2000 ? 'flagged' : 'analyzed',
+      workflowStatus: 'uploaded',
+      carrier: quoteData.carrier || 'Unknown',
+      origin: quoteData.origin || 'Unknown',
+      destination: quoteData.destination || 'Unknown',
+      totalAmount: quoteData.totalCost || 0,
+      totalCost: quoteData.totalCost || 0,
+      surcharges: quoteData.surcharges || [],
+      pdfBase64,
+      geminiRaw,
+      createdAt: Date.now(),
+      reliabilityScore: 85,
+      notes: []
+    };
 
-      if (currentCredits <= 0) {
-        throw "Insufficient credits";
-      }
-
-      // 1. Deduct Credit
-      const newCredits = currentCredits - 1;
-      transaction.update(userRef, { credits: newCredits });
-
-      // 2. Save Quote Data
-      transaction.set(quoteRef, {
-        ...quoteData,
-        ownerId: userId,
-        timestamp: serverTimestamp(),
-        analyzedAt: new Date().toISOString()
-      });
-
-      return { success: true, newCredits };
+    const docRef = await addDoc(collection(db, "quotes"), newQuote);
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, {
+      credits: increment(-1)
     });
-  } catch (e: any) {
-    console.error("Transaction failed: ", e);
-    logAnalyticsEvent('error_boundary', { message: 'transaction_failed', error: e.toString() });
-    return { success: false, error: e.toString() };
+
+    return { success: true, id: docRef.id, ...newQuote };
+  } catch (error: any) {
+    console.error("Save Quote Error:", error);
+    return { success: false, error: error.message, id: undefined };
   }
 };
 
-export { 
-  auth, 
-  db, 
-  googleProvider, 
-  signInWithPopup, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  sendEmailVerification, 
-  signOut, 
-  onAuthStateChanged,
-  User 
+export const processEnterpriseUpgrade = async (userId: string, paypalId: string) => {
+  try {
+    await setDoc(doc(db, "transactions", paypalId), {
+      userId,
+      subtotal: 200.00,
+      taxAmount: 31.00,
+      totalPaid: 231.00,
+      status: "COMPLETED",
+      createdAt: serverTimestamp()
+    });
+
+    await updateDoc(doc(db, "users", userId), {
+      role: "enterprise",
+      credits: 999999
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Upgrade Error:", error);
+    return false;
+  }
+};
+
+export const updateComplianceProfile = async (userId: string, data: { country: string; taxID: string; companyName: string }) => {
+  const userRef = doc(db, "users", userId);
+  await updateDoc(userRef, {
+    country: data.country,
+    taxID: data.taxID,
+    companyName: data.companyName
+  });
+};
+
+export const logAnalyticsEvent = (name: string, params: any) => {
+  console.log(`[Analytics] ${name}`, params);
 };
