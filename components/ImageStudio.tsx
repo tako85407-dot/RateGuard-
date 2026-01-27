@@ -37,33 +37,13 @@ const ImageStudio: React.FC = () => {
   const handleGenerate = async () => {
     if (!prompt) return;
 
-    /* Fixed global Window.aistudio conflict by using local type assertion as it is pre-configured in the environment */
-    const aiStudio = (window as any).aistudio;
-    // Users MUST select their own API key before accessing Gemini 3 Pro models
-    if (aiStudio) {
-      try {
-        const hasKey = await aiStudio.hasSelectedApiKey();
-        if (!hasKey) {
-          await aiStudio.openSelectKey();
-          // Procedding immediately after triggering key selection as per instructions
-        }
-      } catch (err) {
-        console.warn('API key check error', err);
-      }
-    }
-
     setIsProcessing(true);
     try {
       const result = await generateImageWithAI(prompt, selectedSize);
       setResultImage(result);
     } catch (error: any) {
       console.error(error);
-      // Reset key selection state and prompt user again if entity not found error occurs
-      if (error?.message?.includes("Requested entity was not found") && aiStudio) {
-        await aiStudio.openSelectKey();
-      } else {
-        alert('Generation failed. Please verify your prompt and API billing settings.');
-      }
+      alert('Generation failed. Please verify your prompt and ensure your AI settings are configured correctly.');
     } finally {
       setIsProcessing(false);
     }
