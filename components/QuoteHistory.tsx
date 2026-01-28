@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { QuoteData, Audit } from '../types';
 import { Search, Filter, MoreHorizontal, FileText, Users, Download } from 'lucide-react';
@@ -118,7 +119,7 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
                     </td>
                     <td className="p-6 text-right">
                        {a.leakage > 0 ? (
-                         <span className="text-red-500 font-bold font-mono text-sm">-${a.leakage.toFixed(2)}</span>
+                         <span className="text-red-500 font-bold font-mono text-sm">-${a.leakage?.toFixed(2)}</span>
                        ) : (
                          <span className="text-emerald-500 font-bold font-mono text-sm">Optimal</span>
                        )}

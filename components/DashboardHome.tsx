@@ -87,13 +87,13 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
                  <span className="text-xs font-bold text-zinc-300">{rate.pair}</span>
                  <div className="flex items-center gap-1">
                    <span className={`text-xs font-mono font-black ${rate.trend === 'up' ? 'text-emerald-500' : 'text-red-500'}`}>
-                     {rate.midMarketRate.toFixed(5)}
+                     {rate.midMarketRate?.toFixed(5) || '0.00000'}
                    </span>
                    {rate.trend === 'up' ? <ArrowUpRight size={10} className="text-emerald-500" /> : <ArrowDownRight size={10} className="text-red-500" />}
                  </div>
                  <div className="flex items-center gap-1 bg-zinc-800/50 px-1.5 py-0.5 rounded">
                     <span className="text-[9px] text-zinc-500 uppercase">Spread</span>
-                    <span className="text-[9px] font-bold text-blue-400">{rate.savingsPips} pips</span>
+                    <span className="text-[9px] font-bold text-blue-400">{rate.savingsPips || 0} pips</span>
                  </div>
                </div>
              ))
