@@ -1,8 +1,8 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Use process.env.NEXT_PUBLIC_GEMINI_API_KEY as requested for Vercel deployment
-const getAI = () => new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
+const getAI = () => {
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+};
 
 export const extractQuoteData = async (imageBase64: string) => {
   const ai = getAI();
@@ -85,8 +85,7 @@ export const editImageWithAI = async (imageBase64: string, prompt: string) => {
 };
 
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
-  // Fresh GoogleGenAI instance using the configured Vercel env variable
-  const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-image-preview',
     contents: {

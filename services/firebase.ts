@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -33,13 +32,14 @@ import {
 import { UserProfile, QuoteData, LiveRate, Audit } from "../types";
 
 // --- CONFIGURATION ---
+// Prioritize Vercel Env Vars, fallback to hardcoded values for local dev convenience
 const firebaseConfig = {
-  apiKey: "AIzaSyAP_fpKfZ4gANhlNzUBhJbFKHWRauEF7hc",
-  authDomain: "rateguard-3d8b9.firebaseapp.com",
-  projectId: "rateguard-3d8b9",
-  storageBucket: "rateguard-3d8b9.firebasestorage.app",
-  messagingSenderId: "811913626284",
-  appId: "1:811913626284:web:db6d49f5d8ce3ad12c1509"
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY || "AIzaSyAP_fpKfZ4gANhlNzUBhJbFKHWRauEF7hc",
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN || "rateguard-3d8b9.firebaseapp.com",
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID || "rateguard-3d8b9",
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET || "rateguard-3d8b9.firebasestorage.app",
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID || "811913626284",
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID || "1:811913626284:web:db6d49f5d8ce3ad12c1509"
 };
 
 // --- INITIALIZATION ---
@@ -286,7 +286,7 @@ export const listenToRates = (callback: (rates: LiveRate[]) => void) => {
 export const saveAudit = async (auditData: { 
   orgId: string, 
   userId: string, 
-  userName: string,
+  userName: string, 
   pair: string, 
   amount: number, 
   bankRate: number, 
