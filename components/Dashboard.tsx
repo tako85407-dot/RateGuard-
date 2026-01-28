@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   LogOut, Bell, Menu, X, LayoutDashboard, Settings as SettingsIcon, 
   HelpCircle, ChevronRight, FileText, History, Users, Award, BarChart2,
-  Shield, Scale, Cookie, CreditCard, ChevronLeft, Zap
+  Shield, Scale, Cookie, CreditCard, ChevronLeft, Zap, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './Sidebar';
@@ -36,19 +36,38 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogout, userProfile, onProfileUpdate }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isNavMenuOpen, setIsNavMenuOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Added loading state
   const navMenuRef = useRef<HTMLDivElement>(null);
 
   // Initialize with empty array, fetch real data
   const [quotes, setQuotes] = useState<QuoteData[]>([]);
 
+  // Safety Measure 1: Loading State Check
   useEffect(() => {
     const loadData = async () => {
-      if (userProfile?.orgId) {
-        const orgQuotes = await fetchOrgQuotes(userProfile.orgId);
-        setQuotes(orgQuotes);
+      // If no profile yet, keep loading
+      if (!userProfile) return;
+
+      setIsLoading(true);
+      try {
+        // Safety Measure 4: Try/Catch for Firestore
+        if (userProfile?.orgId) {
+          const orgQuotes = await fetchOrgQuotes(userProfile.orgId);
+          // Safety Measure 2: Optional Chaining & Null Check
+          if (orgQuotes && Array.isArray(orgQuotes)) {
+            setQuotes(orgQuotes);
+          }
+        }
+      } catch (error) {
+        console.error("Dashboard Data Load Error:", error);
+      } finally {
+        setIsLoading(false);
       }
     };
-    loadData();
+    
+    if (userProfile) {
+        loadData();
+    }
   }, [userProfile?.orgId]);
 
   useEffect(() => {
@@ -73,6 +92,16 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
     onViewChange(view);
     setIsNavMenuOpen(false);
   };
+
+  // Safety Measure 1 (UI): Return loading screen if data isn't ready
+  if (isLoading && !userProfile) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#0e121b] text-zinc-500 gap-3">
+        <Loader2 className="animate-spin" size={24} />
+        <span className="font-bold tracking-widest text-xs uppercase">Loading RateGuard...</span>
+      </div>
+    );
+  }
 
   const renderView = () => {
     switch (currentView) {
@@ -160,8 +189,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
             {/* Credit Display */}
             {userProfile && (
                <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                  <Zap size={12} className={userProfile.credits > 0 ? "text-yellow-500 fill-yellow-500" : "text-zinc-600"} />
-                  <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">{userProfile.credits} Credits</span>
+                  <Zap size={12} className={userProfile?.credits > 0 ? "text-yellow-500 fill-yellow-500" : "text-zinc-600"} />
+                  <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">{userProfile?.credits ?? 0} Credits</span>
                </div>
             )}
 
@@ -188,6 +217,7 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
               </motion.div>
             </AnimatePresence>
           </div>
+          {/* Safety Measure 2: Optional Chaining for Sidebar props */}
           {['dashboard', 'quotes', 'history'].includes(currentView) ? <ProfitGuardSidebar quotes={quotes} /> : null}
         </main>
       </div>

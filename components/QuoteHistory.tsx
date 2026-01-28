@@ -11,19 +11,24 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
 
   useEffect(() => {
     const init = async () => {
-      if (auth.currentUser) {
-        const profile = await syncUserToFirestore(auth.currentUser);
-        if (profile?.orgId) {
-          setUserOrg(profile.orgId);
-          // Subscribe to Shared Team Audits
-          const unsubscribe = listenToOrgAudits(profile.orgId, (data) => {
-            setAudits(data);
-            setLoading(false);
-          });
-          return () => unsubscribe();
-        } else {
-            setLoading(false);
+      try {
+        if (auth.currentUser) {
+          const profile = await syncUserToFirestore(auth.currentUser);
+          if (profile?.orgId) {
+            setUserOrg(profile.orgId);
+            // Subscribe to Shared Team Audits
+            const unsubscribe = listenToOrgAudits(profile.orgId, (data) => {
+              setAudits(data || []); // Ensure data is array
+              setLoading(false);
+            });
+            return () => unsubscribe();
+          } else {
+              setLoading(false);
+          }
         }
+      } catch (e) {
+        console.error("Audit init error", e);
+        setLoading(false);
       }
     };
     init();
@@ -64,7 +69,7 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
 
         {loading ? (
            <div className="py-20 text-center text-zinc-500 text-sm animate-pulse">Syncing Shared Ledger...</div>
-        ) : audits.length === 0 ? (
+        ) : !audits || audits.length === 0 ? (
           <div className="py-40 text-center flex flex-col items-center justify-center">
             <div className="w-20 h-20 bg-zinc-950 rounded-3xl flex items-center justify-center text-zinc-800 mb-6 border border-zinc-800 border-dashed">
               <FileText size={40} />
@@ -87,7 +92,8 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
                 </tr>
               </thead>
               <tbody>
-                {audits.map((a) => (
+                {/* Safety Measure 3: Null Check for Map */}
+                {audits && Array.isArray(audits) && audits.map((a) => (
                   <tr key={a.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/20 transition-all group">
                     <td className="p-6 text-xs text-zinc-500 font-mono">
                       {new Date(a.timestamp).toLocaleString()}
@@ -95,7 +101,7 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
                     <td className="p-6">
                       <div className="flex items-center gap-2">
                          <div className="w-6 h-6 rounded bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-400">
-                            {a.userName[0]}
+                            {a.userName ? a.userName[0] : '?'}
                          </div>
                          <span className="text-sm font-bold text-zinc-300">{a.userName}</span>
                       </div>
@@ -106,10 +112,10 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = () => {
                         </span>
                     </td>
                     <td className="p-6 text-right text-sm font-mono font-bold text-white">
-                      {a.amount.toLocaleString()}
+                      {a.amount?.toLocaleString()}
                     </td>
                     <td className="p-6 text-right text-sm font-mono text-zinc-400">
-                      {a.bankRate.toFixed(4)}
+                      {a.bankRate?.toFixed(4)}
                     </td>
                     <td className="p-6 text-right">
                        {a.leakage > 0 ? (

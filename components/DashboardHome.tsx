@@ -13,29 +13,32 @@ interface DashboardHomeProps {
 const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onUpdateQuote }) => {
   const [isApproving, setIsApproving] = useState(false);
   const [marketRates, setMarketRates] = useState<LiveRate[]>([]);
-  const flaggedCount = quotes.filter(q => q.status === 'flagged').length;
-  const pendingReview = quotes.filter(q => q.workflowStatus === 'reviewed').length;
+  // Safety Measure 2: Optional Chaining
+  const flaggedCount = quotes?.filter(q => q.status === 'flagged').length || 0;
+  const pendingReview = quotes?.filter(q => q.workflowStatus === 'reviewed').length || 0;
 
   // Real-time rates subscription
   useEffect(() => {
     const unsubscribe = listenToRates((rates) => {
-      setMarketRates(rates);
+      setMarketRates(rates || []);
     });
     return () => unsubscribe();
   }, []);
 
   // Simulation: Trigger rate updates every 5 seconds to show movement
   useEffect(() => {
-    const interval = setInterval(() => {
+    try {
+      const interval = setInterval(() => {
+        updateLiveRates().catch(e => console.warn("Sim update failed", e));
+      }, 5000);
+      // Initial call
       updateLiveRates();
-    }, 5000);
-    // Initial call
-    updateLiveRates();
-    return () => clearInterval(interval);
+      return () => clearInterval(interval);
+    } catch(e) { console.error(e) }
   }, []);
 
   const handleBatchApprove = () => {
-    if (!onUpdateQuote) return;
+    if (!onUpdateQuote || !quotes) return;
     setIsApproving(true);
     setTimeout(() => {
       quotes.forEach(q => {
@@ -76,7 +79,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
         </div>
 
         <div className="flex items-center gap-8 pl-4 overflow-x-auto no-scrollbar">
-           {marketRates.length === 0 ? (
+           {!marketRates || marketRates.length === 0 ? (
              <div className="text-xs text-zinc-600 animate-pulse px-4">Connecting to Exchange...</div>
            ) : (
              marketRates.map((rate) => (
@@ -115,13 +118,13 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
            </div>
 
            <div className="space-y-4 relative z-10">
-              {quotes.filter(q => q.status === 'flagged').length === 0 ? (
+              {(!quotes || quotes.filter(q => q.status === 'flagged').length === 0) ? (
                 <div className="py-12 text-center text-zinc-600 italic text-sm border-2 border-dashed border-zinc-800 rounded-[2rem]">No critical flags at this node.</div>
               ) : (
                 quotes.filter(q => q.status === 'flagged').slice(0, 2).map(q => (
                   <div key={q.id} className="p-6 bg-zinc-950/80 rounded-[1.5rem] border border-zinc-800 flex items-center justify-between hover:border-red-500/50 transition-all cursor-pointer" onClick={() => onViewChange('quotes')}>
                     <div className="flex items-center gap-6">
-                        <div className="w-12 h-12 rounded-2xl bg-zinc-900 flex items-center justify-center font-black text-zinc-500">{q.carrier[0]}</div>
+                        <div className="w-12 h-12 rounded-2xl bg-zinc-900 flex items-center justify-center font-black text-zinc-500">{q.carrier ? q.carrier[0] : '?'}</div>
                         <div>
                           <div className="text-lg font-bold text-white">{q.carrier}</div>
                           <div className="text-xs text-zinc-500">{q.origin} → {q.destination}</div>
