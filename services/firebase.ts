@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -275,9 +274,12 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
     const quoteSize = new Blob([pdfBase64]).size;
     if (quoteSize > 1048487) throw new Error("File too large (< 1MB only).");
 
-    // Calculate approximate markup based on 2% assumption if not provided
     const amount = Number(quoteData.amount) || 0;
-    const markupCost = amount * 0.022; // 2.2% default markup assumption for calculation
+    
+    // Prefer the AI calculated markup cost, otherwise fall back to heuristic
+    const markupCost = quoteData.markupCost !== undefined 
+        ? Number(quoteData.markupCost) 
+        : amount * 0.022; // 2.2% default assumption fallback
     
     const newQuote = {
       userId,
@@ -288,9 +290,11 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
       pair: quoteData.pair || 'USD/EUR',
       amount: amount,
       exchangeRate: Number(quoteData.exchangeRate) || 1.0,
+      midMarketRate: Number(quoteData.midMarketRate) || 0, // Ensure this is saved
       markupCost: markupCost,
       fees: quoteData.fees || [],
       valueDate: quoteData.valueDate || new Date().toISOString().split('T')[0],
+      disputeDrafted: !!quoteData.disputeDrafted,
       pdfBase64,
       geminiRaw,
       createdAt: Date.now(),

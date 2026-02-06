@@ -64,18 +64,29 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       try {
         const base64 = (e.target?.result as string).split(',')[1];
         
-        // Pass the file's mime type (e.g. 'application/pdf' or 'image/png')
-        // to ensure the API handles it correctly.
         const extracted = await extractQuoteData(base64, file.type);
         
         setStatusText("Gemini: Structuring Data...");
 
+        // Map specific fields from the complex new AI schema to our flat internal model
+        const mappedData: Partial<QuoteData> = {
+            bank: extracted.extraction?.bank_name || 'Unknown Bank',
+            pair: extracted.transaction?.currency_pair || 'USD/EUR',
+            amount: extracted.transaction?.original_amount || 0,
+            exchangeRate: extracted.transaction?.exchange_rate_bank || 1.0,
+            fees: extracted.fees?.items?.map((f: any) => ({ name: f.type, amount: f.amount })) || [],
+            valueDate: extracted.transaction?.value_date || new Date().toISOString().split('T')[0],
+            markupCost: extracted.analysis?.cost_of_spread_usd || 0,
+            midMarketRate: extracted.analysis?.mid_market_rate || 0,
+            disputeDrafted: extracted.dispute?.recommended || false
+        };
+
         const result = await saveQuoteToFirestore(
           currentUid,
           currentOrgId,
-          extracted, 
+          mappedData, 
           base64, 
-          extracted
+          extracted // Save the full rich object as raw data
         );
 
         if (result.success) {
@@ -83,18 +94,21 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
              id: result.id,
              userId: currentUid,
              orgId: currentOrgId,
-             ...extracted,
+             ...mappedData,
              // Explicit fallback for new FX fields if extraction missed them to prevent runtime crash
-             bank: extracted.bank || 'Unknown Bank',
-             pair: extracted.pair || 'USD/EUR',
-             amount: extracted.amount || 0,
-             exchangeRate: extracted.exchangeRate || 1.0,
+             bank: mappedData.bank || 'Unknown Bank',
+             pair: mappedData.pair || 'USD/EUR',
+             amount: mappedData.amount || 0,
+             exchangeRate: mappedData.exchangeRate || 1.0,
              markupCost: result.markupCost || 0,
+             fees: mappedData.fees || [],
+             valueDate: mappedData.valueDate || new Date().toISOString().split('T')[0],
              status: (result.markupCost || 0) > 200 ? 'flagged' : 'analyzed',
              workflowStatus: 'uploaded',
              reliabilityScore: 85,
              createdAt: Date.now(),
-             notes: []
+             notes: [],
+             geminiRaw: extracted
           };
 
           onAddQuote(newQuote);
