@@ -1,21 +1,21 @@
 
 import React from 'react';
 import { QuoteData } from '../types';
-import { Star, Clock, CheckCircle, AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
+import { Star, AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
 
 const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
   const carriers = [
-    { name: 'Maersk', score: 92, onTime: '98%', claims: '0.2%', trend: 'up' },
-    { name: 'MSC', score: 65, onTime: '72%', claims: '4.5%', trend: 'down' },
-    { name: 'CMA CGM', score: 88, onTime: '90%', claims: '1.2%', trend: 'up' },
-    { name: 'Hapag-Lloyd', score: 81, onTime: '84%', claims: '1.5%', trend: 'up' }
+    { name: 'JP Morgan', score: 88, spread: '0.8%', fees: 'Low', trend: 'up' },
+    { name: 'Chase', score: 65, spread: '2.5%', fees: 'High', trend: 'down' },
+    { name: 'Wells Fargo', score: 72, spread: '1.9%', fees: 'Med', trend: 'down' },
+    { name: 'Wise Business', score: 95, spread: '0.4%', fees: 'Min', trend: 'up' }
   ];
 
   return (
     <div className="space-y-10 animate-in fade-in duration-500">
       <div>
-        <h2 className="text-3xl font-bold text-white mb-2">Carrier Scorecards</h2>
-        <p className="text-zinc-500">The Reliability Layer: Quality of service vs cost benchmarks.</p>
+        <h2 className="text-3xl font-bold text-white mb-2">Bank Scorecards</h2>
+        <p className="text-zinc-500">The Reliability Layer: Fairness of execution vs mid-market benchmarks.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -33,8 +33,8 @@ const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
              </div>
              <div className="space-y-4">
                 <div className="flex justify-between items-center text-xs">
-                   <span className="text-zinc-500 font-bold uppercase tracking-widest">Reliability</span>
-                   <span className={`font-black ${c.score > 80 ? 'text-emerald-500' : 'text-red-500'}`}>{c.score}%</span>
+                   <span className="text-zinc-500 font-bold uppercase tracking-widest">Fairness Score</span>
+                   <span className={`font-black ${c.score > 80 ? 'text-emerald-500' : 'text-red-500'}`}>{c.score}</span>
                 </div>
                 <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden">
                    <div className={`h-full ${c.score > 80 ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${c.score}%` }} />
@@ -42,12 +42,12 @@ const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
              </div>
              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800/50">
                 <div className="space-y-1">
-                   <div className="text-[10px] font-black text-zinc-600 uppercase">On-Time</div>
-                   <div className="text-sm font-bold text-white">{c.onTime}</div>
+                   <div className="text-[10px] font-black text-zinc-600 uppercase">Avg Spread</div>
+                   <div className="text-sm font-bold text-white">{c.spread}</div>
                 </div>
                 <div className="space-y-1">
-                   <div className="text-[10px] font-black text-zinc-600 uppercase">Claims</div>
-                   <div className="text-sm font-bold text-white">{c.claims}</div>
+                   <div className="text-[10px] font-black text-zinc-600 uppercase">Hidden Fees</div>
+                   <div className="text-sm font-bold text-white">{c.fees}</div>
                 </div>
              </div>
           </div>
@@ -59,13 +59,13 @@ const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
             <AlertTriangle size={48} />
          </div>
          <div className="space-y-4">
-            <h3 className="text-2xl font-black text-white tracking-tighter">Reliability Warning</h3>
+            <h3 className="text-2xl font-black text-white tracking-tighter">Profit Guard Warning</h3>
             <p className="text-zinc-400 leading-relaxed text-sm">
-              Carrier <span className="text-white font-bold">MSC</span> is currently 15% cheaper than the market average for SHA → LAX, however, Atlas has tracked a <span className="text-red-500 font-bold underline">40% delay rate</span> on this lane over the last 90 days. We recommend prioritizing Hapag-Lloyd for urgent shipments.
+              Bank <span className="text-white font-bold">Chase</span> is currently executing USD/EUR at 2.5% above mid-market, however, Atlas has tracked <span className="text-emerald-500 font-bold underline">Wise Business</span> at 0.4% spread. We recommend executing this wire via Wise to save ~$2,100.
             </p>
          </div>
          <button className="px-8 py-4 bg-white text-[#121826] font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shrink-0 hover:scale-105 transition-all">
-            Optimize Route
+            Switch Provider
          </button>
       </div>
     </div>

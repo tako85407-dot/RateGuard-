@@ -9,7 +9,7 @@ export interface Comment {
 export interface TeamMember {
   id: string;
   name: string;
-  role: 'Processor' | 'Manager';
+  role: 'Auditor' | 'Controller' | 'Manager' | 'Processor';
   status: 'Online' | 'Offline';
   activity: string;
 }
@@ -17,21 +17,22 @@ export interface TeamMember {
 export interface QuoteData {
   id: string; // Firestore AutoID
   userId: string;
-  orgId: string; // Added for Organization-based filtering
-  carrier: string;
-  origin: string;
-  destination: string;
-  weight: number;
-  totalCost: number; // Mapped from totalAmount
-  surcharges: Array<{ name: string; amount: number }>;
-  transitTime: string;
+  orgId: string;
+  bank: string; // Renamed from carrier
+  pair: string; // Renamed from origin/destination (e.g. USD/EUR)
+  amount: number; // The principal amount
+  exchangeRate: number; // The executed rate
+  midMarketRate?: number; // The fair rate at that time
+  markupCost: number; // The hidden fee calculated
+  fees: Array<{ name: string; amount: number }>; // Explicit fees
+  valueDate: string; // Settlement date
   status: 'pending' | 'analyzed' | 'flagged' | 'optimal';
   workflowStatus: 'uploaded' | 'analyzed' | 'reviewed' | 'approved';
   disputeDrafted?: boolean;
   reliabilityScore: number;
   notes: Comment[];
-  pdfBase64?: string; // Stored directly in Firestore < 1MB
-  geminiRaw?: any; // Raw JSON map
+  pdfBase64?: string;
+  geminiRaw?: any;
   createdAt: number;
 }
 
@@ -60,9 +61,9 @@ export interface CompanyProfile {
 export interface Organization {
   id: string;
   name: string;
-  adminId: string; // The owner UID
-  members: string[]; // Array of User UIDs
-  plan: 'free' | 'enterprise'; // The source of truth for billing
+  adminId: string;
+  members: string[];
+  plan: 'free' | 'enterprise';
   maxSeats: number;
   createdAt: number;
 }
@@ -76,7 +77,7 @@ export interface Audit {
   amount: number;
   bankRate: number;
   midMarketRate: number;
-  leakage: number; // The money lost due to bad spread
+  leakage: number;
   timestamp: number;
 }
 
@@ -84,13 +85,13 @@ export interface UserProfile {
   uid: string;
   email: string | null;
   displayName: string | null;
-  orgId?: string; // Link to the Organization
-  role: 'admin' | 'member'; // Role within the Org
-  credits: number; // Individual credits (ignored if Org is enterprise)
+  orgId?: string;
+  role: 'admin' | 'member';
+  credits: number;
   companyName?: string;
-  country?: string; // For compliance (ZW or US)
-  taxID?: string;   // For compliance
-  hasSeenIntro?: boolean; // New User Tour Flag
+  country?: string;
+  taxID?: string;
+  hasSeenIntro?: boolean;
   createdAt?: number;
   lastSeen?: number;
 }

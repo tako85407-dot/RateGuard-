@@ -2,11 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 const getAI = () => {
-  // Safe access to API Key with process.env
-  // Prioritize NEXT_PUBLIC_GEMINI_API_KEY as requested for Vercel environments
   const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '';
   if (!apiKey) {
-    console.warn("Gemini API Key is missing. Check your Vercel or local environment variables.");
+    console.warn("Gemini API Key is missing.");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -15,11 +13,10 @@ export const extractQuoteData = async (imageBase64: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    // Correct multi-part content structure
     contents: {
       parts: [
         { inlineData: { mimeType: 'image/jpeg', data: imageBase64 } },
-        { text: "Extract freight quote details from this image. Return JSON format including: carrier, origin, destination, weight, totalCost (number), transitTime, and surcharges (array of objects with name and amount)." }
+        { text: "Analyze this bank wire confirmation or FX trade receipt. Extract the following details into JSON: bank (name of institution), pair (e.g. USD/EUR), amount (transaction principal), exchangeRate (executed rate), valueDate (settlement date), and fees (array of objects with name and amount). If details are missing, infer from context or leave reasonable defaults." }
       ]
     },
     config: {
@@ -27,13 +24,12 @@ export const extractQuoteData = async (imageBase64: string) => {
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          carrier: { type: Type.STRING },
-          origin: { type: Type.STRING },
-          destination: { type: Type.STRING },
-          weight: { type: Type.NUMBER },
-          totalCost: { type: Type.NUMBER },
-          transitTime: { type: Type.STRING },
-          surcharges: {
+          bank: { type: Type.STRING },
+          pair: { type: Type.STRING },
+          amount: { type: Type.NUMBER },
+          exchangeRate: { type: Type.NUMBER },
+          valueDate: { type: Type.STRING },
+          fees: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
@@ -44,12 +40,11 @@ export const extractQuoteData = async (imageBase64: string) => {
             }
           }
         },
-        required: ["carrier", "origin", "destination", "totalCost"]
+        required: ["bank", "pair", "amount", "exchangeRate"]
       }
     }
   });
 
-  // response.text is a property, not a method
   return JSON.parse(response.text || '{}');
 };
 
@@ -58,7 +53,7 @@ export const chatWithAtlas = async (message: string, history: {role: string, par
   const chat = ai.chats.create({
     model: 'gemini-3-flash-preview',
     config: {
-      systemInstruction: "You are Atlas, a specialized logistics AI assistant for RateGuard. You help freight forwarders understand surcharges (BAF, CAF, PSS), explain incoterms, and troubleshoot the RateGuard platform. Keep answers professional, concise, and helpful."
+      systemInstruction: "You are Atlas, a specialized FX Treasury AI assistant for RateGuard. You help CFOs and Controllers understand bank spreads, mid-market rates, correspondent fees, and currency hedging strategies. You are aggressive about saving money on hidden bank markups."
     },
     history: history
   });
@@ -79,12 +74,10 @@ export const editImageWithAI = async (imageBase64: string, prompt: string) => {
     }
   });
 
-  // Iterate through parts to find the image as per guidelines
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) {
-        const base64EncodeString: string = part.inlineData.data;
-        return `data:image/png;base64,${base64EncodeString}`;
+        return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
   }
@@ -106,12 +99,10 @@ export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4
     }
   });
 
-  // Always iterate through all parts to find the image part
   if (response.candidates?.[0]?.content?.parts) {
     for (const part of response.candidates[0].content.parts) {
       if (part.inlineData) {
-        const base64EncodeString: string = part.inlineData.data;
-        return `data:image/png;base64,${base64EncodeString}`;
+        return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
   }

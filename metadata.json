@@ -1,6 +1,6 @@
 {
   "name": "RateGuard",
-  "description": "High-stakes Vertical SaaS for freight forwarders to normalize messy quotes, protect margins with Profit Guard™, and compare lane rates using advanced Gemini-powered OCR.",
+  "description": "AI-powered FX audit platform for CFOs. Expose hidden bank markups, recover 2-4% on international wires, and automate dispute resolution.",
   "requestFramePermissions": [
     "camera"
   ]

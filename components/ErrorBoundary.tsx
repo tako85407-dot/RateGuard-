@@ -1,4 +1,3 @@
-
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCcw } from 'lucide-react';
 
@@ -12,7 +11,6 @@ interface State {
 }
 
 class ErrorBoundary extends Component<Props, State> {
-  // Explicitly define state as a class property to fix TS errors
   public state: State = {
     hasError: false,
     error: null,

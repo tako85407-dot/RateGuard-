@@ -51,43 +51,36 @@ const googleProvider = new GoogleAuthProvider();
 
 export { auth, db, googleProvider };
 
-// --- CORE: SYNC LOGIC (UPDATED) ---
-// Note: We removed the auto-creation of Org to support the "Fork" onboarding flow.
+// --- CORE: SYNC LOGIC ---
 export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile: UserProfile, orgProfile: Organization | null }> => {
   try {
     const userRef = doc(db, "users", user.uid);
     let userSnap = await getDoc(userRef);
 
-    // 1. CREATE USER IF MISSING
     if (!userSnap.exists()) {
-      console.log("Creating new User Record...");
       const newUserData: UserProfile = {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName || 'Agent',
-        role: 'member', // Default to member until they create/join org
+        role: 'member',
         credits: 5,
-        hasSeenIntro: false, // Default to false for new users
+        hasSeenIntro: false,
         createdAt: Date.now(),
         lastSeen: Date.now(),
-        orgId: undefined // Explicitly undefined
+        orgId: undefined
       };
       
       await setDoc(userRef, newUserData);
-      
-      // Initialize Settings
       await setDoc(doc(db, "settings", user.uid), {
-        profitThreshold: 15,
+        profitThreshold: 2.0, // Changed to 2.0% markup threshold
         autoAudit: true,
         notifications: { email: true }
       });
-      
       userSnap = await getDoc(userRef);
     }
 
     const userData = userSnap.data() as UserProfile;
 
-    // 2. FETCH ORG IF EXISTS
     if (userData.orgId) {
        const orgSnap = await getDoc(doc(db, "organizations", userData.orgId));
        if (orgSnap.exists()) {
@@ -96,17 +89,12 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
            orgProfile: { id: orgSnap.id, ...orgSnap.data() } as Organization
          };
        } else {
-         // Org ID exists on user but not in DB (Deleted?). Clear it.
          await updateDoc(userRef, { orgId: null });
-         userData.orgId = undefined; // local update
+         userData.orgId = undefined;
        }
     }
 
-    // Return User with Null Org (Triggers Onboarding in App.tsx)
-    return {
-      userProfile: userData,
-      orgProfile: null
-    };
+    return { userProfile: userData, orgProfile: null };
 
   } catch (error) {
     console.error("Critical Sync Error:", error);
@@ -115,7 +103,6 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
 };
 
 // --- ORG MANAGEMENT HELPERS ---
-
 export const createOrganization = async (userId: string, orgData: Partial<Organization>) => {
   const newOrgData = {
     name: orgData.name || 'New Organization',
@@ -127,13 +114,7 @@ export const createOrganization = async (userId: string, orgData: Partial<Organi
   };
 
   const orgRef = await addDoc(collection(db, "organizations"), newOrgData);
-  
-  // Link creator to org
-  await updateDoc(doc(db, "users", userId), { 
-    orgId: orgRef.id,
-    role: 'admin' 
-  });
-
+  await updateDoc(doc(db, "users", userId), { orgId: orgRef.id, role: 'admin' });
   return orgRef.id;
 };
 
@@ -143,24 +124,18 @@ export const joinOrganization = async (userId: string, orgId: string) => {
     const userRef = doc(db, "users", userId);
 
     await runTransaction(db, async (transaction) => {
-      // 1. Check User Status first
       const userDoc = await transaction.get(userRef);
       if (!userDoc.exists()) throw new Error("User does not exist.");
       const userData = userDoc.data() as UserProfile;
       
-      // STRICT CHECK: Cannot join if already in an org
-      if (userData.orgId) {
-        throw new Error("You are already a member of an organization. Please leave your current organization first.");
-      }
+      if (userData.orgId) throw new Error("Already in an organization.");
 
-      // 2. Check Org Status
       const orgDoc = await transaction.get(orgRef);
-      if (!orgDoc.exists()) throw new Error("Organization not found. Please check the UID.");
+      if (!orgDoc.exists()) throw new Error("Organization not found.");
 
       const orgData = orgDoc.data() as Organization;
-      if (orgData.members.includes(userId)) return; // Already a member (idempotency)
+      if (orgData.members.includes(userId)) return;
 
-      // Limit check for free plans
       if (orgData.plan === 'free' && orgData.members.length >= orgData.maxSeats) {
         throw new Error("Organization is full (Free Tier Limit).");
       }
@@ -168,27 +143,20 @@ export const joinOrganization = async (userId: string, orgId: string) => {
       transaction.update(orgRef, { members: arrayUnion(userId) });
       transaction.update(userRef, { orgId: orgId, role: 'member' });
     });
-
     return { success: true };
   } catch (e: any) {
-    console.error("Join Org Error:", e);
     return { success: false, error: e.message };
   }
 };
 
 export const markIntroSeen = async (userId: string) => {
   try {
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, { hasSeenIntro: true });
+    await updateDoc(doc(db, "users", userId), { hasSeenIntro: true });
     return true;
-  } catch (e) {
-    console.error("Error updating intro status", e);
-    return false;
-  }
+  } catch (e) { return false; }
 };
 
 // --- AUTH HANDLERS ---
-
 export const handleGoogleSignIn = async () => {
   const result = await signInWithPopup(auth, googleProvider);
   return result.user;
@@ -210,16 +178,10 @@ export const handleEmailSignIn = async (email: string, pass: string) => {
   return res.user;
 };
 
-export const signOut = async () => {
-  await firebaseSignOut(auth);
-};
-
-export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => {
-  return onFirebaseAuthStateChanged(auth, cb);
-};
+export const signOut = async () => { await firebaseSignOut(auth); };
+export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => onFirebaseAuthStateChanged(auth, cb);
 
 // --- DATA OPERATIONS ---
-
 export const fetchOrgQuotes = async (orgId: string): Promise<QuoteData[]> => {
   try {
     const q = query(
@@ -244,18 +206,22 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
     const quoteSize = new Blob([pdfBase64]).size;
     if (quoteSize > 1048487) throw new Error("File too large (< 1MB only).");
 
+    // Calculate approximate markup based on 2% assumption if not provided
+    const amount = quoteData.amount || 0;
+    const markupCost = amount * 0.022; // 2.2% default markup assumption for calculation
+    
     const newQuote = {
       userId,
       orgId,
-      status: quoteData.totalCost && quoteData.totalCost > 2000 ? 'flagged' : 'analyzed',
+      status: markupCost > 200 ? 'flagged' : 'analyzed',
       workflowStatus: 'uploaded',
-      carrier: quoteData.carrier || 'Unknown',
-      origin: quoteData.origin || 'Unknown',
-      destination: quoteData.destination || 'Unknown',
-      totalAmount: quoteData.totalCost || 0,
-      totalCost: quoteData.totalCost || 0,
-      surcharges: quoteData.surcharges || [],
-      transitTime: quoteData.transitTime || 'N/A',
+      bank: quoteData.bank || 'Unknown Bank',
+      pair: quoteData.pair || 'USD/EUR',
+      amount: amount,
+      exchangeRate: quoteData.exchangeRate || 1.0,
+      markupCost: markupCost,
+      fees: quoteData.fees || [],
+      valueDate: quoteData.valueDate || new Date().toISOString().split('T')[0],
       pdfBase64,
       geminiRaw,
       createdAt: Date.now(),
@@ -264,10 +230,7 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
     };
 
     const docRef = await addDoc(collection(db, "quotes"), newQuote);
-    
-    // Decrement credits only if needed
-    const userRef = doc(db, "users", userId);
-    await updateDoc(userRef, { credits: increment(-1) });
+    await updateDoc(doc(db, "users", userId), { credits: increment(-1) });
 
     return { success: true, id: docRef.id, ...newQuote };
   } catch (error: any) {
@@ -277,7 +240,6 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
 };
 
 // --- BILLING & ORG UPDATES ---
-
 export const processEnterpriseUpgrade = async (userId: string, orgId: string, paypalId: string) => {
   try {
     await setDoc(doc(db, "transactions", paypalId), {
@@ -287,42 +249,22 @@ export const processEnterpriseUpgrade = async (userId: string, orgId: string, pa
       status: "COMPLETED",
       createdAt: serverTimestamp()
     });
-
-    await updateDoc(doc(db, "organizations", orgId), {
-      plan: "enterprise",
-      maxSeats: 999
-    });
-
+    await updateDoc(doc(db, "organizations", orgId), { plan: "enterprise", maxSeats: 999 });
     return true;
-  } catch (error) {
-    console.error("Upgrade Error:", error);
-    return false;
-  }
+  } catch (error) { return false; }
 };
 
-// --- REST OF HELPERS (Simplified) ---
-
-export const updateComplianceProfile = async (userId: string, data: any) => {
-  await updateDoc(doc(db, "users", userId), data);
-};
-
+// --- REST OF HELPERS ---
+export const updateComplianceProfile = async (userId: string, data: any) => updateDoc(doc(db, "users", userId), data);
 export const fetchUserSettings = async (userId: string) => {
   const snap = await getDoc(doc(db, "settings", userId));
   return snap.exists() ? snap.data() : null;
 };
-
-export const updateUserSettings = async (userId: string, settings: any) => {
-  await updateDoc(doc(db, "settings", userId), settings);
-};
-
-export const updateUserProfileData = async (userId: string, data: Partial<UserProfile>) => {
-  await updateDoc(doc(db, "users", userId), data);
-};
-
+export const updateUserSettings = async (userId: string, settings: any) => updateDoc(doc(db, "settings", userId), settings);
+export const updateUserProfileData = async (userId: string, data: Partial<UserProfile>) => updateDoc(doc(db, "users", userId), data);
 export const addTeammateByUID = async (ownerUid: string, colleagueUid: string) => {
   try {
     if (ownerUid === colleagueUid) throw new Error("Cannot invite self.");
-    
     const ownerSnap = await getDoc(doc(db, "users", ownerUid));
     const orgId = ownerSnap.data()?.orgId;
     if (!orgId) throw new Error("Owner has no Org.");
@@ -330,38 +272,22 @@ export const addTeammateByUID = async (ownerUid: string, colleagueUid: string) =
     const colRef = doc(db, "users", colleagueUid);
     const colSnap = await getDoc(colRef);
     if (!colSnap.exists()) throw new Error("User ID not found.");
-
     if (colSnap.data()?.orgId === orgId) throw new Error("Already in team.");
 
     const batch = writeBatch(db);
     batch.update(colRef, { orgId: orgId, role: 'member' });
     batch.update(doc(db, "organizations", orgId), { members: arrayUnion(colleagueUid) });
     await batch.commit();
-
     return { success: true };
-  } catch (e: any) {
-    return { success: false, error: e.message };
-  }
+  } catch (e: any) { return { success: false, error: e.message }; }
 };
 
-// --- LISTENERS ---
-// Updated to be more generic, though actual impl is in marketData.ts now for Massive FX
-export const listenToRates = (cb: (rates: LiveRate[]) => void) => {
-  return onSnapshot(collection(db, "rates"), (snap) => {
-    cb(snap.docs.map(d => ({id: d.id, ...d.data()} as LiveRate)));
-  });
-};
-
-export const updateLiveRates = async () => { /* Deprecated by Massive FX Service */ };
-
+export const listenToRates = (cb: (rates: LiveRate[]) => void) => onSnapshot(collection(db, "rates"), (snap) => cb(snap.docs.map(d => ({id: d.id, ...d.data()} as LiveRate))));
+export const updateLiveRates = async () => {};
 export const listenToOrgAudits = (orgId: string, cb: (audits: Audit[]) => void) => {
   if (!orgId) return () => {};
   const q = query(collection(db, "audits"), where("orgId", "==", orgId), orderBy("timestamp", "desc"));
   return onSnapshot(q, (snap) => cb(snap.docs.map(d => ({id: d.id, ...d.data()} as Audit))));
 };
-
-export const saveAudit = async (data: any) => {
-  await addDoc(collection(db, "audits"), { ...data, timestamp: Date.now() });
-};
-
+export const saveAudit = async (data: any) => addDoc(collection(db, "audits"), { ...data, timestamp: Date.now() });
 export const logAnalyticsEvent = (name: string, data: any) => console.log(name, data);
