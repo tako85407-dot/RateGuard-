@@ -55,8 +55,9 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       try {
         const base64 = (e.target?.result as string).split(',')[1];
         
-        // The service now handles the 1s delay and the DeepSeek -> Gemini chain
-        const extracted = await extractQuoteData(base64);
+        // Pass the file's mime type (e.g. 'application/pdf' or 'image/png')
+        // to ensure the API handles it correctly.
+        const extracted = await extractQuoteData(base64, file.type);
         
         setStatusText("Gemini: Structuring Data...");
 

@@ -13,12 +13,15 @@ const getDeepSeekKey = () => {
   return process.env.NEXT_PUBLIC_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '';
 };
 
-// Function to perform OCR using DeepSeek (simulated vision request structure)
-const performDeepSeekOCR = async (imageBase64: string): Promise<string> => {
+// Function to perform OCR using DeepSeek
+const performDeepSeekOCR = async (base64: string, mimeType: string): Promise<string> => {
   const apiKey = getDeepSeekKey();
   if (!apiKey) {
     throw new Error("DEEPSEEK_API_KEY is missing. Cannot perform OCR.");
   }
+
+  // Construct Data URL with correct mime type
+  const dataUrl = `data:${mimeType};base64,${base64}`;
 
   try {
     const response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -28,16 +31,16 @@ const performDeepSeekOCR = async (imageBase64: string): Promise<string> => {
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "deepseek-chat", // Targeting DeepSeek's main chat model (assuming multimodal capabilities or fallback)
+        model: "deepseek-chat", 
         messages: [
           {
             role: "user",
             content: [
-              { type: "text", text: "Please transcribe all text visible in this image verbatim. Do not summarize, just output the raw text found in the document." },
+              { type: "text", text: "Please transcribe all text visible in this document verbatim. Do not summarize, just output the raw text found." },
               {
                 type: "image_url",
                 image_url: {
-                  url: `data:image/jpeg;base64,${imageBase64}`
+                  url: dataUrl
                 }
               }
             ]
@@ -59,35 +62,28 @@ const performDeepSeekOCR = async (imageBase64: string): Promise<string> => {
 
   } catch (error) {
     console.error("DeepSeek Request Failed", error);
-    // Fallback or rethrow depending on strictness. 
-    // Rethrowing to ensure user knows OCR failed.
     throw error;
   }
 };
 
-export const extractQuoteData = async (imageBase64: string) => {
-  // 1. Enforce 1 second delay as requested
+export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
+  // 1. Enforce 1 second delay
   await new Promise(resolve => setTimeout(resolve, 1000));
 
   let textToAnalyze = "";
 
   try {
     // 2. Perform OCR with DeepSeek
-    console.log("Starting DeepSeek OCR...");
-    textToAnalyze = await performDeepSeekOCR(imageBase64);
+    console.log(`Starting DeepSeek OCR for ${mimeType}...`);
+    textToAnalyze = await performDeepSeekOCR(base64, mimeType);
     console.log("DeepSeek OCR Result length:", textToAnalyze.length);
   } catch (error) {
     console.warn("DeepSeek OCR failed, falling back to Gemini Vision direct processing.", error);
-    // Fallback: If DeepSeek fails (e.g. no key), we pass an empty string 
-    // and let Gemini handle the image directly in the prompt below.
     textToAnalyze = ""; 
   }
 
   // 3. Send to Gemini for JSON Extraction
   const ai = getAI();
-  
-  // Dynamic content construction:
-  // If we have OCR text, we send text. If OCR failed/empty, we send the image to Gemini as fallback.
   const contentsPayload: any = { parts: [] };
 
   if (textToAnalyze && textToAnalyze.length > 0) {
@@ -102,7 +98,8 @@ export const extractQuoteData = async (imageBase64: string) => {
     });
   } else {
     // Fallback to Gemini Vision if DeepSeek text is empty
-    contentsPayload.parts.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } });
+    // IMPORTANT: Use the correct mimeType (e.g., application/pdf) so Gemini doesn't error with INVALID_ARGUMENT
+    contentsPayload.parts.push({ inlineData: { mimeType: mimeType, data: base64 } });
     contentsPayload.parts.push({ text: "Analyze this bank wire confirmation or FX trade receipt. Extract the following details into JSON: bank (name of institution), pair (e.g. USD/EUR), amount (transaction principal), exchangeRate (executed rate), valueDate (settlement date), and fees (array of objects with name and amount)." });
   }
 
