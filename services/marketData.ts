@@ -1,13 +1,12 @@
-
 import { LiveRate } from '../types';
 
 // Helper for Robust Env Vars
 const getEnv = (key: string) => {
   let value = '';
-  if (import.meta && import.meta.env) {
-    value = import.meta.env[`VITE_${key}`] || 
-            import.meta.env[`NEXT_PUBLIC_${key}`] || 
-            import.meta.env[key] || 
+  if (import.meta && (import.meta as any).env) {
+    value = (import.meta as any).env[`VITE_${key}`] || 
+            (import.meta as any).env[`NEXT_PUBLIC_${key}`] || 
+            (import.meta as any).env[key] || 
             '';
   }
   if (value) return value;

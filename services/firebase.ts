@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -37,10 +36,10 @@ import { UserProfile, QuoteData, LiveRate, Audit, Organization } from "../types"
 const getEnv = (key: string) => {
   let value = '';
   // 1. Vite / Modern (Priority)
-  if (import.meta && import.meta.env) {
-    value = import.meta.env[`VITE_${key}`] || 
-            import.meta.env[`NEXT_PUBLIC_${key}`] || 
-            import.meta.env[key] || 
+  if (import.meta && (import.meta as any).env) {
+    value = (import.meta as any).env[`VITE_${key}`] || 
+            (import.meta as any).env[`NEXT_PUBLIC_${key}`] || 
+            (import.meta as any).env[key] || 
             '';
   }
   if (value) return value;
