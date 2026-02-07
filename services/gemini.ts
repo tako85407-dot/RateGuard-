@@ -3,25 +3,75 @@ import { GoogleGenAI, Type } from "@google/genai";
 // --- CONFIGURATION ---
 
 const getEnv = (key: string) => {
-  // Check process.env (Vercel/Node)
   if (typeof process !== 'undefined' && process.env) {
     return process.env[`VITE_${key}`] || 
            process.env[`NEXT_PUBLIC_${key}`] || 
            process.env[key] || 
            '';
   }
-  // Check import.meta.env (Vite)
-  if (import.meta && import.meta.env) {
-    return import.meta.env[`VITE_${key}`] || 
-           import.meta.env[`NEXT_PUBLIC_${key}`] || 
-           import.meta.env[key] || 
-           '';
-  }
   return '';
 };
 
 const getZhipuKey = () => getEnv('ZHIPUAI_API_KEY');
-const getGeminiKey = () => getEnv('GEMINI_API_KEY');
+
+// --- TEXT PRE-PROCESSING (ROBUSTNESS LAYER) ---
+
+const cleanOcrText = (text: string): string => {
+  return text
+    // Fix common header separators
+    .replace(/═+/g, '---')
+    .replace(/_+/g, '---')
+    // Fix multiple spaces
+    .replace(/\s{3,}/g, '\n')
+    // Fix specific Chase/Bank merged line headers
+    .replace(/(Wire Transfer Fee:\s+)(Foreign Exchange Fee:)/g, '$1\n$2')
+    // Fix merged dollar amounts (e.g. "$35.00 $125.00")
+    .replace(/(\$\d+[\d,]*\.?\d*)\s+(\$\d+[\d,]*\.?\d*)/g, '$1\n$2')
+    // Fix "Fee: $Amount" spacing issues
+    .replace(/(Fee:)(\s*)(\$\d)/gi, '$1 $3')
+    // Fix trailing percentages merged with amounts (e.g. "$125.00(0.25%)")
+    .replace(/(\$\d+\.\d+)(\()/g, '$1 $2')
+    .trim();
+};
+
+const extractFeesWithRegex = (text: string) => {
+  const fees = {
+    wire: 0,
+    fx: 0,
+    correspondent: 0,
+    total: 0
+  };
+
+  // Extract all dollar amounts in the text to find candidates
+  const allAmounts = [...text.matchAll(/\$(\d{1,3}(,\d{3})*(\.\d{2})?)/g)]
+    .map(m => parseFloat(m[1].replace(/,/g, '')));
+
+  // Specific Pattern Matching
+  const wireMatch = text.match(/Wire[^$]*\$(\d[\d,]*\.?\d*)/i);
+  const fxMatch = text.match(/(Foreign Exchange|FX)[^$]*\$(\d[\d,]*\.?\d*)/i);
+  const corrMatch = text.match(/Correspondent[^$]*\$(\d[\d,]*\.?\d*)/i);
+  const totalMatch = text.match(/Total Fees[^$]*\$(\d[\d,]*\.?\d*)/i);
+
+  if (wireMatch) fees.wire = parseFloat(wireMatch[1].replace(/,/g, ''));
+  if (fxMatch) fees.fx = parseFloat(fxMatch[1].replace(/,/g, ''));
+  if (corrMatch) fees.correspondent = parseFloat(corrMatch[1].replace(/,/g, ''));
+  if (totalMatch) fees.total = parseFloat(totalMatch[1].replace(/,/g, ''));
+
+  // Logic: If we found individual fees but no total, or total doesn't match, calculate sum
+  const calculatedSum = fees.wire + fees.fx + fees.correspondent;
+  if (fees.total === 0 || Math.abs(fees.total - calculatedSum) > 0.01) {
+    // If we have at least 3 amounts and the logic seems to be "List then Total"
+    if (allAmounts.length >= 4 && fees.total === 0) {
+       // Chase often lists: Wire, FX, Corr, Total. 
+       // If regex failed but we have a cluster of numbers, take the largest as total
+       fees.total = Math.max(...allAmounts);
+    } else {
+       fees.total = calculatedSum;
+    }
+  }
+
+  return fees;
+};
 
 // --- SYSTEM INSTRUCTIONS ---
 
@@ -32,13 +82,20 @@ Never mention internal model names. Always refer to yourself as "Atlas".`;
 
 const EXTRACTION_INSTRUCTION = `You are RateGuard's Logic Engine. Your goal is to convert raw OCR text from a bank document into structured JSON.
 
-## CRITICAL RULES
-1. **FEE CALCULATION**: Only sum fees EXPLICITLY listed.
+## CRITICAL: HANDLING CORRUPTED OCR
+The input text may have merged lines or missing line breaks (e.g., "Wire Fee: $35.00 Foreign Exchange Fee: $125.00").
+You must intelligently separate these fields based on context.
+
+## EXTRACTION RULES
+1. **FEE LOGIC**: 
+   - Look for specific fees: "Wire Transfer", "Foreign Exchange" (FX), "Correspondent".
+   - If a line contains two dollar amounts (e.g. "$35.00 $125.00"), the first is likely the Wire Fee, the second is the FX Fee.
+   - Use the "HINTS" provided in the prompt to validate your findings.
 2. **CURRENCY PAIR**: Format as XXX/YYY (e.g. USD/EUR).
 3. **SPREAD CALCULATION**: 
-   - If mid-market rate is provided in context, use it. 
-   - Otherwise, estimate based on the provided 'value_date' and standard historical rates for that pair.
+   - If 'mid_market_rate' is NOT in document, estimate it based on the 'value_date'.
    - Calculate 'markup_cost' = (Bank Rate vs Mid-Market Rate diff) * Amount.
+   - 'total_cost_usd' should include explicit fees + markup cost.
 
 ## OUTPUT JSON SCHEMA
 Return strictly JSON. No markdown blocking.`;
@@ -135,7 +192,6 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
     });
 
     if (!response.ok) {
-       // Handle CORS or API errors gracefully by throwing
        throw new Error(`ZHIPU_API_ERROR: ${response.status}`);
     }
     
@@ -149,10 +205,8 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
 
 // --- GEMINI VISION (OCR FALLBACK) ---
 const performOCRWithGemini = async (base64Image: string, mimeType: string): Promise<string> => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Using direct process.env.API_KEY as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
     // Using gemini-3-flash-preview for speed in fallback
@@ -174,16 +228,34 @@ const performOCRWithGemini = async (base64Image: string, mimeType: string): Prom
 
 // --- GEMINI ANALYSIS (LOGIC) ---
 const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+  // 1. Clean the text using Regex rules
+  const cleanedText = cleanOcrText(ocrText);
   
-  const ai = new GoogleGenAI({ apiKey });
+  // 2. Pre-calculate fees to give hints to the model
+  const regexHints = extractFeesWithRegex(cleanedText);
 
   try {
     // Using gemini-3-pro-preview for complex reasoning and JSON extraction
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `Here is the raw text extracted from the document:\n\n${ocrText}`,
+      contents: `
+      Here is the processed text extracted from the document:
+      ---------------------------------------------------
+      ${cleanedText}
+      ---------------------------------------------------
+
+      HINTS (REGEX EXTRACTION):
+      - Likely Wire Fee: $${regexHints.wire}
+      - Likely FX Fee: $${regexHints.fx}
+      - Likely Correspondent Fee: $${regexHints.correspondent}
+      - Likely Total Fees: $${regexHints.total}
+
+      INSTRUCTIONS:
+      Use the cleaned text as the primary source. Use the HINTS to verify or correct if the text is ambiguous.
+      Return the data strictly fitting the schema.
+      `,
       config: {
         systemInstruction: EXTRACTION_INSTRUCTION,
         responseMimeType: "application/json",
@@ -219,19 +291,17 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     throw new Error("Document appeared empty or unreadable.");
   }
 
-  // 3. Structured Analysis
+  // 3. Structured Analysis with Robust Cleaning
   const structuredData = await analyzeTextWithGemini(rawText);
   return structuredData;
 };
 
 // --- SUPPORT CHAT (Gemini) ---
 export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) return "Atlas Disconnected: Missing API Key.";
-
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   try {
+    // Using gemini-3-flash-preview for general support/Q&A
     const chat = ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
@@ -252,10 +322,7 @@ export const chatWithAtlas = async (message: string, history: {role: string, par
 
 // --- IMAGE GENERATION ---
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
-
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = (size === '2K' || size === '4K') ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
   
   try {
@@ -284,10 +351,7 @@ export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4
 
 // --- IMAGE EDITING ---
 export const editImageWithAI = async (imageBase64: string, prompt: string) => {
-  const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("Gemini API Key is missing.");
-  
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
     const response = await ai.models.generateContent({
