@@ -32,14 +32,31 @@ import {
 } from "firebase/firestore";
 import { UserProfile, QuoteData, LiveRate, Audit, Organization } from "../types";
 
+// Helper for Robust Env Vars
+const getEnv = (key: string) => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[`VITE_${key}`] || 
+           process.env[`NEXT_PUBLIC_${key}`] || 
+           process.env[key] || 
+           '';
+  }
+  if (import.meta && import.meta.env) {
+    return import.meta.env[`VITE_${key}`] || 
+           import.meta.env[`NEXT_PUBLIC_${key}`] || 
+           import.meta.env[key] || 
+           '';
+  }
+  return '';
+};
+
 // --- CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: import.meta.env.NEXT_PUBLIC_FIREBASE_API_KEY || (process.env.NEXT_PUBLIC_FIREBASE_API_KEY as string),
-  authDomain: import.meta.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || (process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN as string),
-  projectId: import.meta.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID as string),
-  storageBucket: import.meta.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || (process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET as string),
-  messagingSenderId: import.meta.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || (process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID as string),
-  appId: import.meta.env.NEXT_PUBLIC_FIREBASE_APP_ID || (process.env.NEXT_PUBLIC_FIREBASE_APP_ID as string)
+  apiKey: getEnv("FIREBASE_API_KEY"),
+  authDomain: getEnv("FIREBASE_AUTH_DOMAIN"),
+  projectId: getEnv("FIREBASE_PROJECT_ID"),
+  storageBucket: getEnv("FIREBASE_STORAGE_BUCKET"),
+  messagingSenderId: getEnv("FIREBASE_MESSAGING_SENDER_ID"),
+  appId: getEnv("FIREBASE_APP_ID")
 };
 
 // --- INITIALIZATION ---

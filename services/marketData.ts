@@ -1,8 +1,25 @@
 import { LiveRate } from '../types';
 
+// Helper for Robust Env Vars
+const getEnv = (key: string) => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[`VITE_${key}`] || 
+           process.env[`NEXT_PUBLIC_${key}`] || 
+           process.env[key] || 
+           '';
+  }
+  if (import.meta && import.meta.env) {
+    return import.meta.env[`VITE_${key}`] || 
+           import.meta.env[`NEXT_PUBLIC_${key}`] || 
+           import.meta.env[key] || 
+           '';
+  }
+  return '';
+};
+
 // CONFIGURATION
 const MASSIVE_API_URL = "https://api.massive-fx.com/v1/rates"; 
-const API_KEY = import.meta.env.NEXT_PUBLIC_MASSIVE_API_KEY || (process.env.NEXT_PUBLIC_MASSIVE_API_KEY as string);
+const API_KEY = getEnv("MASSIVE_API_KEY");
 
 if (!API_KEY) {
   console.warn("RateGuard Warning: MASSIVE_API_KEY is not defined. Falling back to High-Fidelity Simulation Mode.");

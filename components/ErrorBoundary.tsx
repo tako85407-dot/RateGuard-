@@ -11,7 +11,7 @@ interface State {
 }
 
 class ErrorBoundary extends React.Component<Props, State> {
-  // Added constructor to fix "Property 'props' does not exist" error
+  // Initialize state in constructor to satisfy stricter TS configs
   constructor(props: Props) {
     super(props);
     this.state = {
@@ -65,7 +65,6 @@ class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    // Explicitly destructure children to avoid property access issues
     const { children } = this.props;
     return children;
   }

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { ShieldCheck, Zap, CheckCircle, CreditCard, Loader2 } from 'lucide-react';
 import { processEnterpriseUpgrade, auth } from '../services/firebase';
@@ -13,8 +12,24 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const paypalRef = useRef<HTMLDivElement>(null);
 
-  // Hardcoded Client ID to bypass env var issues
-  const CLIENT_ID = "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
+  // Helper for Robust Env Vars
+  const getEnv = (key: string) => {
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env[`VITE_${key}`] || 
+             process.env[`NEXT_PUBLIC_${key}`] || 
+             process.env[key] || 
+             '';
+    }
+    if (import.meta && import.meta.env) {
+      return import.meta.env[`VITE_${key}`] || 
+             import.meta.env[`NEXT_PUBLIC_${key}`] || 
+             import.meta.env[key] || 
+             '';
+    }
+    return '';
+  };
+
+  const CLIENT_ID = getEnv("PAYPAL_CLIENT_ID") || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
   const PLAN_ID = "P-1UB7789392647964ANF3SL4I";
 
   useEffect(() => {
@@ -29,7 +44,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
     } else {
       setScriptLoaded(true);
     }
-  }, []);
+  }, [CLIENT_ID]);
 
   useEffect(() => {
     // 2. Render Buttons
