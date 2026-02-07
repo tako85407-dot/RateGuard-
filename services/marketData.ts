@@ -1,20 +1,24 @@
+
 import { LiveRate } from '../types';
 
 // Helper for Robust Env Vars
 const getEnv = (key: string) => {
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[`VITE_${key}`] || 
-           process.env[`NEXT_PUBLIC_${key}`] || 
-           process.env[key] || 
-           '';
-  }
+  let value = '';
   if (import.meta && import.meta.env) {
-    return import.meta.env[`VITE_${key}`] || 
-           import.meta.env[`NEXT_PUBLIC_${key}`] || 
-           import.meta.env[key] || 
-           '';
+    value = import.meta.env[`VITE_${key}`] || 
+            import.meta.env[`NEXT_PUBLIC_${key}`] || 
+            import.meta.env[key] || 
+            '';
   }
-  return '';
+  if (value) return value;
+
+  if (typeof process !== 'undefined' && process.env) {
+    value = process.env[`VITE_${key}`] || 
+            process.env[`NEXT_PUBLIC_${key}`] || 
+            process.env[key] || 
+            '';
+  }
+  return value;
 };
 
 // CONFIGURATION

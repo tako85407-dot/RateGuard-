@@ -1,18 +1,31 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 // --- CONFIGURATION ---
 
 const getEnv = (key: string) => {
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[`VITE_${key}`] || 
-           process.env[`NEXT_PUBLIC_${key}`] || 
-           process.env[key] || 
-           '';
+  let value = '';
+  // 1. Vite / Modern
+  if (import.meta && import.meta.env) {
+    value = import.meta.env[`VITE_${key}`] || 
+            import.meta.env[`NEXT_PUBLIC_${key}`] || 
+            import.meta.env[key] || 
+            '';
   }
-  return '';
+  if (value) return value;
+
+  // 2. Process / Legacy
+  if (typeof process !== 'undefined' && process.env) {
+    value = process.env[`VITE_${key}`] || 
+            process.env[`NEXT_PUBLIC_${key}`] || 
+            process.env[key] || 
+            '';
+  }
+  return value;
 };
 
 const getZhipuKey = () => getEnv('ZHIPUAI_API_KEY');
+const getGeminiKey = () => getEnv('GEMINI_API_KEY');
 
 // --- TEXT PRE-PROCESSING (ROBUSTNESS LAYER) ---
 
@@ -205,8 +218,10 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
 
 // --- GEMINI VISION (OCR FALLBACK) ---
 const performOCRWithGemini = async (base64Image: string, mimeType: string): Promise<string> => {
-  // Using direct process.env.API_KEY as per guidelines
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getGeminiKey();
+  if (!apiKey) throw new Error("Gemini API Key is missing.");
+  
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     // Using gemini-3-flash-preview for speed in fallback
@@ -228,7 +243,10 @@ const performOCRWithGemini = async (base64Image: string, mimeType: string): Prom
 
 // --- GEMINI ANALYSIS (LOGIC) ---
 const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getGeminiKey();
+  if (!apiKey) throw new Error("Gemini API Key is missing.");
+
+  const ai = new GoogleGenAI({ apiKey });
 
   // 1. Clean the text using Regex rules
   const cleanedText = cleanOcrText(ocrText);
@@ -298,7 +316,10 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
 
 // --- SUPPORT CHAT (Gemini) ---
 export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getGeminiKey();
+  if (!apiKey) return "Atlas Disconnected: Missing API Key.";
+
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
     // Using gemini-3-flash-preview for general support/Q&A
@@ -322,7 +343,10 @@ export const chatWithAtlas = async (message: string, history: {role: string, par
 
 // --- IMAGE GENERATION ---
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getGeminiKey();
+  if (!apiKey) throw new Error("Gemini API Key is missing.");
+
+  const ai = new GoogleGenAI({ apiKey });
   const model = (size === '2K' || size === '4K') ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
   
   try {
@@ -351,7 +375,10 @@ export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4
 
 // --- IMAGE EDITING ---
 export const editImageWithAI = async (imageBase64: string, prompt: string) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getGeminiKey();
+  if (!apiKey) throw new Error("Gemini API Key is missing.");
+
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const response = await ai.models.generateContent({
