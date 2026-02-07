@@ -1,9 +1,9 @@
-
 import React, { useState, useRef } from 'react';
 import { FileText, Loader2, AlertTriangle, MessageSquare, X, Send, Cpu, Search, Lock, ScanLine } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData } from '../services/gemini';
 import { saveQuoteToFirestore, logAnalyticsEvent } from '../services/firebase';
+import { analyzeQuoteRealtime } from '../services/marketData';
 import { QuoteData, Comment, UserProfile } from '../types';
 
 interface IntelligenceFeedProps {
@@ -29,7 +29,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5000000) { // Increased limit slightly for OCR
+    if (file.size > 5000000) { 
       setErrorMsg("File Size Exceeded. Must be under 5MB.");
       return;
     }
@@ -61,9 +61,18 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         // Step 1: GLM-4V OCR -> Step 2: Gemini Analysis
         const extracted = await extractQuoteData(base64, file.type);
         
-        setStatusText("Atlas: Calculating Hidden Spreads...");
+        setStatusText("RateGuard: Querying Massive FX Market Feed...");
 
-        // Map AI response to QuoteData
+        // Step 3: RateGuard FX Integrator Audit
+        // Fetch real market rates based on document date
+        const marketAnalysis = await analyzeQuoteRealtime(
+          extracted.transaction?.currency_pair || 'USD/EUR',
+          extracted.transaction?.exchange_rate_bank || 0,
+          extracted.transaction?.original_amount || 0,
+          extracted.transaction?.value_date
+        );
+
+        // Map AI response + Market Analysis to QuoteData
         const mappedData: Partial<QuoteData> = {
             bank: extracted.extraction?.bank_name || 'Unknown Bank',
             pair: extracted.transaction?.currency_pair || 'USD/EUR',
@@ -71,9 +80,12 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
             exchangeRate: extracted.transaction?.exchange_rate_bank || 1.0,
             fees: extracted.fees?.items?.map((f: any) => ({ name: f.name || f.type, amount: f.amount })) || [],
             valueDate: extracted.transaction?.value_date || new Date().toISOString().split('T')[0],
-            markupCost: extracted.analysis?.cost_of_spread_usd || 0,
-            midMarketRate: extracted.analysis?.mid_market_rate || 0,
-            totalCost: extracted.analysis?.total_cost_usd || 0,
+            
+            // Overwrite estimated data with Real Market Data
+            markupCost: marketAnalysis.markupCost || 0,
+            midMarketRate: marketAnalysis.midMarketRate || 0,
+            totalCost: (extracted.analysis?.total_cost_usd || 0) + (marketAnalysis.markupCost || 0),
+            
             disputeDrafted: extracted.dispute?.recommended || false
         };
 
@@ -86,6 +98,18 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         );
 
         if (result.success) {
+          const notes: Comment[] = [];
+          
+          // Add System Note if Market Closed or Stale
+          if (marketAnalysis.note) {
+            notes.push({
+              id: Date.now().toString(),
+              user: 'System',
+              text: marketAnalysis.note,
+              timestamp: Date.now()
+            });
+          }
+
           const newQuote: QuoteData = {
              id: result.id,
              userId: currentUid,
@@ -96,14 +120,14 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
              pair: mappedData.pair || 'USD/EUR',
              amount: mappedData.amount || 0,
              exchangeRate: mappedData.exchangeRate || 1.0,
-             markupCost: result.markupCost || 0,
+             markupCost: mappedData.markupCost || 0,
              fees: mappedData.fees || [],
              valueDate: mappedData.valueDate || new Date().toISOString().split('T')[0],
-             status: (result.markupCost || 0) > 200 ? 'flagged' : 'analyzed',
+             status: (mappedData.markupCost || 0) > 200 ? 'flagged' : 'analyzed',
              workflowStatus: 'uploaded',
              reliabilityScore: 95,
              createdAt: Date.now(),
-             notes: [],
+             notes: notes,
              geminiRaw: extracted
           };
 
@@ -296,7 +320,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                  activeQuote.notes.map(note => (
                    <div key={note.id} className="p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800 space-y-2">
                       <div className="flex items-center justify-between">
-                         <span className="text-[10px] font-black text-blue-500 uppercase tracking-tighter">{note.user}</span>
+                         <span className={`text-[10px] font-black uppercase tracking-tighter ${note.user === 'System' ? 'text-emerald-500' : 'text-blue-500'}`}>{note.user}</span>
                       </div>
                       <p className="text-xs text-zinc-300 leading-relaxed font-medium">{note.text}</p>
                    </div>

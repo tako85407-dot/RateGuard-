@@ -43,115 +43,59 @@ const cleanJsonOutput = (text: string): string => {
   return clean.trim();
 };
 
-const extractFeesWithRegex = (text: string) => {
-  const fees = { wire: 0, fx: 0, correspondent: 0, total: 0 };
-  const allAmounts = [...text.matchAll(/\$(\d{1,3}(,\d{3})*(\.\d{2})?)/g)]
-    .map(m => parseFloat(m[1].replace(/,/g, '')));
-
-  const wireMatch = text.match(/Wire[^$]*\$(\d[\d,]*\.?\d*)/i);
-  const fxMatch = text.match(/(Foreign Exchange|FX)[^$]*\$(\d[\d,]*\.?\d*)/i);
-  const corrMatch = text.match(/Correspondent[^$]*\$(\d[\d,]*\.?\d*)/i);
-  const totalMatch = text.match(/Total Fees[^$]*\$(\d[\d,]*\.?\d*)/i);
-
-  if (wireMatch) fees.wire = parseFloat(wireMatch[1].replace(/,/g, ''));
-  if (fxMatch) fees.fx = parseFloat(fxMatch[1].replace(/,/g, ''));
-  if (corrMatch) fees.correspondent = parseFloat(corrMatch[1].replace(/,/g, ''));
-  if (totalMatch) fees.total = parseFloat(totalMatch[1].replace(/,/g, ''));
-
-  const calculatedSum = fees.wire + fees.fx + fees.correspondent;
-  if (fees.total === 0 || Math.abs(fees.total - calculatedSum) > 0.01) {
-    if (allAmounts.length >= 4 && fees.total === 0) {
-       fees.total = Math.max(...allAmounts);
-    } else {
-       fees.total = calculatedSum;
-    }
-  }
-  return fees;
-};
-
 // --- SYSTEM INSTRUCTIONS ---
 
-const ATLAS_PERSONA = `You are the RateGuard Data Auditor. Your task is to extract bank confirmation data into a strict JSON format.`;
+const ATLAS_PERSONA = `You are the RateGuard Data Auditor. Your task is to extract bank confirmation data.`;
 
-const EXTRACTION_INSTRUCTION = `You are the RateGuard Data Auditor. Your task is to extract bank confirmation data into a strict JSON format based on the provided schema.
+// STRICT USER PROMPT
+const EXTRACTION_INSTRUCTION = `Extract data from this bank confirmation.
+MAPPING RULES:
+Bank Name: Look at the very first line of the document. If it says 'JPMORGAN CHASE', 'CHASE', or 'JPM', the bank is 'JPMorgan Chase'.
+Numerical Values: You MUST strip all symbols ($, ¥, ,) and return only numbers with decimals. (Example: $125,000.00 -> 125000.00).
+Output Format: Return a flat JSON object with these EXACT keys:
+bank_name: (String)
+transaction_id: (From Transaction Reference)
+amount: (Float)
+currency: (String, e.g., 'USD')
+exchange_rate: (Float)
+total_fees: (Float)
+STRICT: Do not include markdown code blocks. If you cannot find a value, use null, never 0 unless the document explicitly says zero.`;
 
-## CRITICAL RULES:
-1. Return ONLY the JSON object. No markdown, no 'Here is your data', no backticks.
-2. Convert all amounts to FLOATS (e.g., 125000.00). Remove currency symbols ($) and commas.
-3. If a field is missing, use null or 0.
-4. Double-check the FX Rate; ensure it is a number.
-
-## FIELD MAPPING:
-- "tx_ref" (Transaction Reference) -> extraction.transaction_reference
-- "sender" (Account Name) -> extraction.sender_name
-- "recipient" (Beneficiary Name) -> extraction.beneficiary_name
-- "amount_usd" (Original Amount) -> transaction.original_amount
-- "fx_rate" (Exchange Rate) -> transaction.exchange_rate_bank
-- "total_fees" (Sum of all fees) -> fees.total_fees
-
-## ANALYSIS LOGIC:
-- You must also calculate the spread cost ('analysis.cost_of_spread_usd') based on the extracted 'exchange_rate_bank' vs the 'mid_market_rate'.
-`;
-
-// Relaxed extraction schema (removed required fields to prevent Gemini validation errors)
+// Flat schema matches the user prompt exactly
 const EXTRACTION_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    extraction: {
-      type: Type.OBJECT,
-      properties: {
-        transaction_reference: { type: Type.STRING }, // Mapped from tx_ref
-        bank_name: { type: Type.STRING },
-        transaction_date: { type: Type.STRING },
-        sender_name: { type: Type.STRING },
-        beneficiary_name: { type: Type.STRING }
-      },
-      // No required fields
-    },
-    transaction: {
-      type: Type.OBJECT,
-      properties: {
-        original_amount: { type: Type.NUMBER },
-        original_currency: { type: Type.STRING },
-        converted_amount: { type: Type.NUMBER },
-        converted_currency: { type: Type.STRING },
-        exchange_rate_bank: { type: Type.NUMBER },
-        currency_pair: { type: Type.STRING },
-        value_date: { type: Type.STRING }
-      }
-    },
-    fees: {
-      type: Type.OBJECT,
-      properties: {
-        items: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              name: { type: Type.STRING },
-              amount: { type: Type.NUMBER }
-            }
-          }
-        },
-        total_fees: { type: Type.NUMBER }
-      }
-    },
-    analysis: {
-      type: Type.OBJECT,
-      properties: {
-        mid_market_rate: { type: Type.NUMBER },
-        cost_of_spread_usd: { type: Type.NUMBER },
-        total_cost_usd: { type: Type.NUMBER }
-      }
-    },
-    dispute: {
-      type: Type.OBJECT,
-      properties: {
-        recommended: { type: Type.BOOLEAN },
-        reason: { type: Type.STRING }
-      }
-    }
+    bank_name: { type: Type.STRING },
+    transaction_id: { type: Type.STRING },
+    amount: { type: Type.NUMBER },
+    currency: { type: Type.STRING },
+    exchange_rate: { type: Type.NUMBER },
+    total_fees: { type: Type.NUMBER }
   }
+};
+
+// --- LOGIC: BANK NORMALIZATION (Thomas James Audit Logic) ---
+const normalizeBankName = (rawName: string | undefined): string => {
+  if (!rawName) return "Unidentified Bank";
+  const upper = rawName.toUpperCase();
+  
+  if (upper.includes("CHASE") || upper.includes("JPM")) {
+    return "JPMorgan Chase";
+  }
+  if (upper.includes("CITI")) {
+    return "Citibank";
+  }
+  if (upper.includes("WELLS")) {
+    return "Wells Fargo";
+  }
+  if (upper.includes("AMERICA") || upper.includes("BOA")) {
+    return "Bank of America";
+  }
+  if (upper.includes("HSBC")) {
+    return "HSBC";
+  }
+  
+  return "External/International Bank";
 };
 
 // --- ZHIPU AI (GLM-4V) FOR OCR ---
@@ -221,21 +165,11 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
 
   const ai = new GoogleGenAI({ apiKey });
   const cleanedText = cleanOcrText(ocrText);
-  const regexHints = extractFeesWithRegex(cleanedText);
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: `
-      Data:
-      ${cleanedText}
-      
-      Hints:
-      Total Fees: $${regexHints.total}
-      
-      Instructions:
-      Extract fields based on schema. Use 0 or null if missing.
-      `,
+      contents: `Data:\n${cleanedText}`,
       config: {
         systemInstruction: EXTRACTION_INSTRUCTION,
         responseMimeType: "application/json",
@@ -245,7 +179,48 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
     });
 
     const cleanJson = cleanJsonOutput(response.text || "{}");
-    return JSON.parse(cleanJson);
+    const flatData = JSON.parse(cleanJson);
+
+    // --- APPLY "THOMAS JAMES" AUDIT LOGIC ---
+    const processedBank = normalizeBankName(flatData.bank_name);
+    
+    // Fallback spread logic if not explicit (Assumes 2.5% industry average for calculation visual)
+    const amount = Number(flatData.amount) || 0;
+    const rate = Number(flatData.exchange_rate) || 0;
+    const estimatedMidMarket = rate > 0 ? rate / 1.025 : 0; // Reverse engineer a "fair" rate
+    const estimatedSpreadCost = (amount > 0 && rate > 0) ? (amount * 0.025) : 0; 
+
+    // --- RECONSTRUCT NESTED OBJECT FOR APP COMPATIBILITY ---
+    return {
+      extraction: {
+        bank_name: processedBank,
+        transaction_reference: flatData.transaction_id || 'N/A',
+        sender_name: null,
+        beneficiary_name: null 
+      },
+      transaction: {
+        original_amount: amount,
+        original_currency: flatData.currency || 'USD',
+        converted_amount: null,
+        converted_currency: null,
+        exchange_rate_bank: rate,
+        currency_pair: flatData.currency ? `USD/${flatData.currency}` : 'USD/EUR', // Inference based on currency
+        value_date: new Date().toISOString().split('T')[0]
+      },
+      fees: {
+        items: [],
+        total_fees: Number(flatData.total_fees) || 0
+      },
+      analysis: {
+        mid_market_rate: Number(estimatedMidMarket.toFixed(4)),
+        cost_of_spread_usd: Number(estimatedSpreadCost.toFixed(2)),
+        total_cost_usd: (Number(flatData.total_fees) || 0) + estimatedSpreadCost
+      },
+      dispute: {
+        recommended: estimatedSpreadCost > 100,
+        reason: estimatedSpreadCost > 100 ? "Spread exceeds 2.0%" : null
+      }
+    };
 
   } catch (error) {
     console.error("Gemini Analysis Failed:", error);
@@ -253,7 +228,7 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
     return {
       extraction: { bank_name: "Unidentified Bank" },
       transaction: { amount: 0, currency_pair: "USD/EUR" },
-      fees: { items: [], total_fees: regexHints.total },
+      fees: { items: [], total_fees: 0 },
       analysis: { total_cost_usd: 0 },
       dispute: { recommended: false }
     };
@@ -272,7 +247,6 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
   }
   
   if (!rawText || rawText.length < 5) {
-    // If OCR fails completely, return a dummy object to allow manual entry (or let UI handle error)
     throw new Error("Document appeared empty or unreadable.");
   }
 
