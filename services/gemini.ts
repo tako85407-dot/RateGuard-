@@ -37,21 +37,14 @@ const performDeepSeekOCR = async (base64: string, mimeType: string): Promise<str
             content: [
               { 
                 type: "text", 
-                text: `Please transcribe all text visible in this document verbatim. 
+                text: `EXTRACT EVERYTHING. 
                 
-                ALSO, extract fees as structured data from this bank document.
+                I need a verbatim transcription of every single piece of text, number, code, address, and table found in this document. 
+                Do not summarize. Do not skip "irrelevant" parts. 
+                If there is a table, transcribe every row and column.
+                If there are small print terms, transcribe them.
                 
-                Return the transcription first, followed by this JSON format:
-                {
-                  "wire_fee": number or null,
-                  "fx_fee": number or null, 
-                  "correspondent_fee": number or null,
-                  "other_fees": number or null,
-                  "total_fees": number or null,
-                  "fee_section_raw_text": "paste exact text here"
-                }
-
-                If a fee is not found, use null.` 
+                After the transcription, specifically list out any Fees, Taxes, or Surcharges found in a list format.` 
               },
               {
                 type: "image_url",
@@ -82,7 +75,7 @@ const performDeepSeekOCR = async (base64: string, mimeType: string): Promise<str
   }
 };
 
-const RATEGUARD_SYSTEM_INSTRUCTION = `You are RateGuard FX Analyzer, a specialized financial document analysis system. Your job is to extract and calculate FX transaction data with 100% accuracy.
+const RATEGUARD_SYSTEM_INSTRUCTION = `You are RateGuard FX Analyzer, a specialized financial document analysis system. Your job is to extract and calculate FX transaction data with 100% accuracy based on the provided text.
 
 ## CRITICAL RULES - NEVER VIOLATE
 
@@ -230,18 +223,20 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     textToAnalyze = ""; 
   }
 
-  // 3. Send to Gemini for JSON Extraction
+  // 3. Send to Gemini for JSON Extraction (Gemini 2.5 Only)
   const ai = getAI();
   const contentsPayload: any = { parts: [] };
 
   const promptText = textToAnalyze 
-    ? `Here is the OCR text transcript of a bank wire or FX trade receipt (including DeepSeek's fee extraction JSON at the end):
+    ? `Here is the full verbatim extraction of a bank wire or FX trade receipt provided by DeepSeek OCR:
       
       """
       ${textToAnalyze}
       """
 
-      Analyze this text using the RateGuard FX Analyzer rules.`
+      You are the "Brain" of RateGuard. Analyze this raw text. 
+      Map every single finding into the JSON schema. 
+      Use your reasoning to calculate spreads and totals.`
     : `Analyze this bank wire confirmation or FX trade receipt image using the RateGuard FX Analyzer rules.`;
 
   if (textToAnalyze) {
@@ -252,11 +247,13 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     contentsPayload.parts.push({ text: promptText });
   }
 
+  // USING GEMINI 2.5 FLASH WITH THINKING
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.5-flash-latest',
     contents: contentsPayload,
     config: {
       systemInstruction: RATEGUARD_SYSTEM_INSTRUCTION,
+      thinkingConfig: { thinkingBudget: 2048 }, // Enable Thinking for complex analysis
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
@@ -352,7 +349,7 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
 export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
   const ai = getAI();
   const chat = ai.chats.create({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.5-flash-latest', // Changed from 3-flash
     config: {
       systemInstruction: "You are Atlas, a specialized FX Treasury AI assistant for RateGuard. You help CFOs and Controllers understand bank spreads, mid-market rates, correspondent fees, and currency hedging strategies. You are aggressive about saving money on hidden bank markups."
     },
@@ -387,17 +384,13 @@ export const editImageWithAI = async (imageBase64: string, prompt: string) => {
 
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
   const ai = getAI();
+  // Changed from gemini-3-pro-image-preview to 2.5 flash image as per request (NO Gemini 3 models)
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
+    model: 'gemini-2.5-flash-image',
     contents: {
       parts: [{ text: prompt }]
-    },
-    config: {
-      imageConfig: {
-        aspectRatio: "1:1",
-        imageSize: size
-      }
     }
+    // Note: imageConfig for size is not supported in 2.5-flash-image standard generation
   });
 
   if (response.candidates?.[0]?.content?.parts) {
