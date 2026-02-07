@@ -1,15 +1,22 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 // --- CONFIGURATION ---
 
-const getZhipuKey = () => {
-  return process.env.ZHIPUAI_API_KEY || process.env.NEXT_PUBLIC_ZHIPUAI_API_KEY || '';
+// Helper to check all possible prefix variations for Vercel/Vite compatibility
+const getEnv = (key: string) => {
+  // Check process.env (polyfilled by vite.config.ts)
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[`VITE_${key}`] || 
+           process.env[`NEXT_PUBLIC_${key}`] || 
+           process.env[key] || 
+           '';
+  }
+  return '';
 };
 
-const getGeminiKey = () => {
-  return process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-};
+const getZhipuKey = () => getEnv('ZHIPUAI_API_KEY');
+const getGeminiKey = () => getEnv('GEMINI_API_KEY');
 
 // --- SYSTEM INSTRUCTIONS ---
 
@@ -62,12 +69,10 @@ Return strictly JSON. No markdown blocking.
 }`;
 
 // --- ZHIPU AI (GLM-4V) FOR OCR ---
-// We use the OpenAI-compatible endpoint provided by Zhipu for ease of integration with Vision
 const performOCRWithGLM = async (base64Image: string): Promise<string> => {
   const apiKey = getZhipuKey();
-  if (!apiKey) throw new Error("ZHIPUAI_API_KEY is missing.");
+  if (!apiKey) throw new Error("ZHIPU_MISSING");
 
-  // Zhipu OpenAI-Compatible Endpoint
   const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 
   try {
@@ -93,24 +98,46 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
       })
     });
 
-    if (!response.ok) {
-       const err = await response.text();
-       console.error("GLM-4V Error:", err);
-       throw new Error(`OCR Node Failure: ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Status ${response.status}`);
     const data = await response.json();
     return data.choices?.[0]?.message?.content || "";
   } catch (error) {
-    console.error("OCR Failed:", error);
-    throw new Error("Atlas Vision Sensor Failed.");
+    console.warn("GLM-4V OCR Failed or CORS blocked, falling back to Gemini Vision.", error);
+    throw new Error("ZHIPU_FAILED");
+  }
+};
+
+// --- GEMINI VISION FALLBACK ---
+const performOCRWithGemini = async (base64Image: string, mimeType: string): Promise<string> => {
+  const apiKey = getGeminiKey();
+  if (!apiKey) throw new Error("Gemini API Key is missing.");
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-preview',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: "Transcribe all text and numbers from this financial document exactly as they appear. Return only the text." },
+            { inlineData: { mimeType, data: base64Image } }
+          ]
+        }
+      ]
+    });
+    return response.text || "";
+  } catch (error) {
+    console.error("Gemini Vision Failed:", error);
+    throw new Error("Atlas Vision Sensors Failed.");
   }
 };
 
 // --- GEMINI FOR ANALYSIS ---
 const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
   const apiKey = getGeminiKey();
-  if (!apiKey) throw new Error("NEXT_PUBLIC_GEMINI_API_KEY is missing.");
+  if (!apiKey) throw new Error("Gemini API Key is missing.");
 
   const ai = new GoogleGenAI({ apiKey });
 
@@ -144,12 +171,20 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
 
 // --- MAIN PIPELINE ---
 export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
-  // 1. Send to GLM-4V for raw text extraction (Inspection)
-  const rawText = await performOCRWithGLM(base64);
-  
-  if (!rawText) throw new Error("Document was unreadable.");
+  let rawText = "";
 
-  // 2. Send extracted text to Gemini for Logic/Math/Structuring
+  // 1. Try GLM-4V first
+  try {
+     rawText = await performOCRWithGLM(base64);
+  } catch (e: any) {
+     // 2. Fallback to Gemini 2.5 Flash if Zhipu is missing or fails (CORS/Error)
+     console.log("Switching to Gemini Vision pipeline...");
+     rawText = await performOCRWithGemini(base64, mimeType);
+  }
+  
+  if (!rawText) throw new Error("Document was unreadable by all nodes.");
+
+  // 3. Send extracted text to Gemini for Logic/Math/Structuring
   const structuredData = await analyzeTextWithGemini(rawText);
 
   return structuredData;
@@ -181,12 +216,11 @@ export const chatWithAtlas = async (message: string, history: {role: string, par
   }
 };
 
-// --- IMAGE GENERATION (DALL-E 3 Fallback or future Gemini Imagen) ---
-// Keeping existing DALL-E stub or returning null as prompt focused on GLM/Gemini Logic
+// --- IMAGE GENERATION ---
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
-  return null; // Placeholder: Image gen not requested in this refactor
+  return null; 
 };
 
 export const editImageWithAI = async (imageBase64: string, prompt: string) => {
-   return null; // Placeholder
+   return null; 
 };

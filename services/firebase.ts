@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
   getAuth, 
@@ -32,14 +33,25 @@ import {
 } from "firebase/firestore";
 import { UserProfile, QuoteData, LiveRate, Audit, Organization } from "../types";
 
+// Helper for Robust Env Vars
+const getEnv = (key: string) => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[`VITE_${key}`] || 
+           process.env[`NEXT_PUBLIC_${key}`] || 
+           process.env[key] || 
+           '';
+  }
+  return '';
+};
+
 // --- CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY || "AIzaSyAP_fpKfZ4gANhlNzUBhJbFKHWRauEF7hc",
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || "rateguard-3d8b9.firebaseapp.com",
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID || "rateguard-3d8b9",
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || "rateguard-3d8b9.firebasestorage.app",
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "811913626284",
-  appId: process.env.VITE_FIREBASE_APP_ID || "1:811913626284:web:db6d49f5d8ce3ad12c1509"
+  apiKey: getEnv("FIREBASE_API_KEY") || "AIzaSyAP_fpKfZ4gANhlNzUBhJbFKHWRauEF7hc",
+  authDomain: getEnv("FIREBASE_AUTH_DOMAIN") || "rateguard-3d8b9.firebaseapp.com",
+  projectId: getEnv("FIREBASE_PROJECT_ID") || "rateguard-3d8b9",
+  storageBucket: getEnv("FIREBASE_STORAGE_BUCKET") || "rateguard-3d8b9.firebasestorage.app",
+  messagingSenderId: getEnv("FIREBASE_MESSAGING_SENDER_ID") || "811913626284",
+  appId: getEnv("FIREBASE_APP_ID") || "1:811913626284:web:db6d49f5d8ce3ad12c1509"
 };
 
 // --- INITIALIZATION ---
@@ -69,16 +81,13 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
         companyName: '',
         country: '',
         taxID: ''
-        // orgId is intentionally undefined by default
     };
 
     // 1. AUTO-CREATE IF MISSING
     if (!userSnap.exists()) {
-      // Deep copy to ensure clean object for Firestore (removes undefined)
       const firestoreData = JSON.parse(JSON.stringify(defaultProfile));
       await setDoc(userRef, firestoreData);
       
-      // Initialize Settings
       await setDoc(doc(db, "settings", user.uid), {
         profitThreshold: 2.0,
         autoAudit: true,
@@ -88,8 +97,7 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
       userSnap = await getDoc(userRef);
     }
 
-    // 2. AUTO-REPAIR (Schema Evolution & Data Integrity)
-    // Ensures that even if the doc existed, missing fields are backfilled.
+    // 2. AUTO-REPAIR
     const currentData = userSnap.data();
     const updates: any = {};
     let isDirty = false;
@@ -99,7 +107,6 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
     if (!currentData.role) { updates.role = 'member'; isDirty = true; }
     if (currentData.hasSeenIntro === undefined) { updates.hasSeenIntro = false; isDirty = true; }
     
-    // Ensure Settings Document exists
     const settingsRef = doc(db, "settings", user.uid);
     const settingsSnap = await getDoc(settingsRef);
     if (!settingsSnap.exists()) {
@@ -112,22 +119,18 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
 
     if (isDirty) {
         await updateDoc(userRef, updates);
-        userSnap = await getDoc(userRef); // Refresh
+        userSnap = await getDoc(userRef); 
     }
 
-    // Merge DB data with default profile to ensure the APP never sees undefined keys
     const userData = { ...defaultProfile, ...userSnap.data() } as UserProfile;
 
     // 3. ORG SYNC & REPAIR
     if (userData.orgId) {
        const orgSnap = await getDoc(doc(db, "organizations", userData.orgId));
        if (orgSnap.exists()) {
-         // Update activity timestamp
          await updateDoc(userRef, { lastSeen: Date.now() });
-         
          const orgData = orgSnap.data() as Organization;
          
-         // Consistency Check: Ensure user is actually in the org's member list
          if (orgData.members && !orgData.members.includes(user.uid)) {
              await updateDoc(doc(db, "organizations", userData.orgId), {
                  members: arrayUnion(user.uid)
@@ -139,7 +142,6 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
            orgProfile: { id: orgSnap.id, ...orgData } as Organization
          };
        } else {
-         // FAIL-SAFE: User points to a deleted/missing Org. Repair the user record.
          console.warn("Orphaned Org ID detected. Repairing user profile...");
          await updateDoc(userRef, { orgId: null });
          userData.orgId = undefined; 
@@ -150,7 +152,6 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
 
   } catch (error) {
     console.error("Critical Sync Error:", error);
-    // FALLBACK: Return a usable transient profile so the app doesn't crash to white screen
     return { 
         userProfile: {
             uid: user.uid,
@@ -267,7 +268,6 @@ export const fetchOrgQuotes = async (orgId: string): Promise<QuoteData[]> => {
 
 export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteData: Partial<QuoteData>, pdfBase64: string, geminiRaw: any): Promise<{success: true, id: string, [key: string]: any} | {success: false, error: any}> => {
   try {
-    // Validation to prevent "Unsupported field value: undefined" errors
     if (!userId) throw new Error("User ID is missing.");
     if (!orgId) throw new Error("Organization ID is missing.");
 
@@ -276,10 +276,9 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
 
     const amount = Number(quoteData.amount) || 0;
     
-    // Prefer the AI calculated markup cost, otherwise fall back to heuristic
     const markupCost = quoteData.markupCost !== undefined 
         ? Number(quoteData.markupCost) 
-        : amount * 0.022; // 2.2% default assumption fallback
+        : amount * 0.022;
     
     const newQuote = {
       userId,
@@ -290,9 +289,9 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
       pair: quoteData.pair || 'USD/EUR',
       amount: amount,
       exchangeRate: Number(quoteData.exchangeRate) || 1.0,
-      midMarketRate: Number(quoteData.midMarketRate) || 0, // Ensure this is saved
+      midMarketRate: Number(quoteData.midMarketRate) || 0,
       markupCost: markupCost,
-      totalCost: Number(quoteData.totalCost) || 0, // NEW: explicitly save total cost
+      totalCost: Number(quoteData.totalCost) || 0,
       fees: quoteData.fees || [],
       valueDate: quoteData.valueDate || new Date().toISOString().split('T')[0],
       disputeDrafted: !!quoteData.disputeDrafted,
@@ -303,7 +302,6 @@ export const saveQuoteToFirestore = async (userId: string, orgId: string, quoteD
       notes: []
     };
 
-    // Sanitize the object to remove any 'undefined' values which Firestore rejects
     const sanitizedQuote = JSON.parse(JSON.stringify(newQuote));
 
     const docRef = await addDoc(collection(db, "quotes"), sanitizedQuote);

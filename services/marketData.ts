@@ -1,13 +1,23 @@
 
 import { LiveRate } from '../types';
 
-// CONFIGURATION
-const MASSIVE_API_URL = "https://api.massive-fx.com/v1/rates"; // Placeholder for production endpoint
-const API_KEY = process.env.NEXT_PUBLIC_MASSIVE_API_KEY;
+// Helper for Robust Env Vars
+const getEnv = (key: string) => {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[`VITE_${key}`] || 
+           process.env[`NEXT_PUBLIC_${key}`] || 
+           process.env[key] || 
+           '';
+  }
+  return '';
+};
 
-// Debug check for Vercel Deployment
+// CONFIGURATION
+const MASSIVE_API_URL = "https://api.massive-fx.com/v1/rates"; 
+const API_KEY = getEnv("MASSIVE_API_KEY");
+
 if (!API_KEY) {
-  console.warn("RateGuard Warning: NEXT_PUBLIC_MASSIVE_API_KEY is not defined. Falling back to High-Fidelity Simulation Mode.");
+  console.warn("RateGuard Warning: MASSIVE_API_KEY is not defined. Falling back to High-Fidelity Simulation Mode.");
 }
 
 // PAIRS CONFIGURATION
@@ -24,9 +34,6 @@ const TRACKED_PAIRS = [
 
 /**
  * High-Fidelity Simulation Generator
- * Used when API is unreachable or keys are missing.
- * Creates organic-looking market noise.
- * Supports generating multiple entries for seeding/dev tools.
  */
 export const generateLiveRates = (count: number = 8): LiveRate[] => {
   const now = Date.now();
@@ -36,18 +43,15 @@ export const generateLiveRates = (count: number = 8): LiveRate[] => {
     const pair = TRACKED_PAIRS[i % TRACKED_PAIRS.length];
     
     // 1. Organic Volatility (Random Walk)
-    // Add offset if generating more than base pairs to avoid duplicates
     const noise = Math.random() * (i >= TRACKED_PAIRS.length ? 0.005 : 0);
-    const volatility = (Math.random() - 0.5) * 0.002; // +/- 0.1% swing
+    const volatility = (Math.random() - 0.5) * 0.002; 
     const midMarket = pair.base * (1 + volatility + noise);
     
     // 2. Bank Spread Logic (The "Rip-off" Rate)
-    // Banks typically add 1.8% - 2.5% spread
     const bankSpreadPct = 0.022; 
     const bankRate = midMarket * (1 + bankSpreadPct);
 
     // 3. RateGuard Spread Logic (The "Fair" Rate)
-    // We target 0.3% spread
     const guardSpreadPct = 0.003;
     const guardRate = midMarket * (1 + guardSpreadPct);
 
@@ -75,11 +79,8 @@ export const generateLiveRates = (count: number = 8): LiveRate[] => {
 
 /**
  * Primary Data Fetcher
- * Attempts to hit Massive FX API.
- * Falls back to simulation on error.
  */
 export const fetchMarketRates = async (): Promise<{ source: 'live' | 'simulated', rates: LiveRate[] }> => {
-  // DEFENSIVE: If no key, skip straight to simulation to save network roundtrip
   if (!API_KEY) {
     return { source: 'simulated', rates: generateLiveRates(TRACKED_PAIRS.length) };
   }
@@ -102,13 +103,9 @@ export const fetchMarketRates = async (): Promise<{ source: 'live' | 'simulated'
       throw new Error(`API Error: ${response.status}`);
     }
 
-    // const data = await response.json();
-    // Transform API response to internal type here...
-    // For now, assuming API fails or we just return empty, triggering fallback in catch
     return { source: 'live', rates: [] }; 
 
   } catch (error) {
-    // FAIL-SAFE: Return simulation on any network/api error
     return { source: 'simulated', rates: generateLiveRates(TRACKED_PAIRS.length) };
   }
 };
