@@ -223,7 +223,7 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     textToAnalyze = ""; 
   }
 
-  // 3. Send to Gemini for JSON Extraction (Gemini 2.5 Only)
+  // 3. Send to Gemini for JSON Extraction (Gemini 2.0 Flash Exp for Thinking)
   const ai = getAI();
   const contentsPayload: any = { parts: [] };
 
@@ -247,9 +247,9 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     contentsPayload.parts.push({ text: promptText });
   }
 
-  // USING GEMINI 2.5 FLASH WITH THINKING
+  // UPDATED MODEL: Using gemini-2.0-flash-exp as 2.5-flash-latest was not found
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-latest',
+    model: 'gemini-2.0-flash-exp',
     contents: contentsPayload,
     config: {
       systemInstruction: RATEGUARD_SYSTEM_INSTRUCTION,
@@ -349,7 +349,7 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
 export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
   const ai = getAI();
   const chat = ai.chats.create({
-    model: 'gemini-2.5-flash-latest', // Changed from 3-flash
+    model: 'gemini-2.0-flash-exp', // Updated to 2.0-flash-exp
     config: {
       systemInstruction: "You are Atlas, a specialized FX Treasury AI assistant for RateGuard. You help CFOs and Controllers understand bank spreads, mid-market rates, correspondent fees, and currency hedging strategies. You are aggressive about saving money on hidden bank markups."
     },
@@ -384,13 +384,12 @@ export const editImageWithAI = async (imageBase64: string, prompt: string) => {
 
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
   const ai = getAI();
-  // Changed from gemini-3-pro-image-preview to 2.5 flash image as per request (NO Gemini 3 models)
+  // Using gemini-2.5-flash-image as requested
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
       parts: [{ text: prompt }]
     }
-    // Note: imageConfig for size is not supported in 2.5-flash-image standard generation
   });
 
   if (response.candidates?.[0]?.content?.parts) {
