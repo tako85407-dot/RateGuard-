@@ -71,21 +71,27 @@ const extractFeesWithRegex = (text: string) => {
 
 // --- SYSTEM INSTRUCTIONS ---
 
-const ATLAS_PERSONA = `You are Atlas, the central intelligence node for RateGuard. 
-You assist Finance teams in analyzing bank wires, detecting hidden spreads, and negotiating better FX rates.
-You are professional, concise, and focused on saving the user money.
-Never mention internal model names. Always refer to yourself as "Atlas".`;
+const ATLAS_PERSONA = `You are the RateGuard Data Auditor. Your task is to extract bank confirmation data into a strict JSON format.`;
 
-const EXTRACTION_INSTRUCTION = `You are RateGuard's Logic Engine. Your goal is to convert raw OCR text from a bank document into structured JSON.
-If a field is missing, leave it null or 0. Do not fail.
+const EXTRACTION_INSTRUCTION = `You are the RateGuard Data Auditor. Your task is to extract bank confirmation data into a strict JSON format based on the provided schema.
 
-## EXTRACTION RULES
-1. **FEE LOGIC**: Look for specific fees: "Wire Transfer", "Foreign Exchange" (FX), "Correspondent".
-2. **CURRENCY PAIR**: Format as XXX/YYY (e.g. USD/EUR).
-3. **SPREAD**: If 'mid_market_rate' is NOT in document, estimate based on 'value_date'.
+## CRITICAL RULES:
+1. Return ONLY the JSON object. No markdown, no 'Here is your data', no backticks.
+2. Convert all amounts to FLOATS (e.g., 125000.00). Remove currency symbols ($) and commas.
+3. If a field is missing, use null or 0.
+4. Double-check the FX Rate; ensure it is a number.
 
-## OUTPUT JSON SCHEMA
-Return strictly JSON. No markdown.`;
+## FIELD MAPPING:
+- "tx_ref" (Transaction Reference) -> extraction.transaction_reference
+- "sender" (Account Name) -> extraction.sender_name
+- "recipient" (Beneficiary Name) -> extraction.beneficiary_name
+- "amount_usd" (Original Amount) -> transaction.original_amount
+- "fx_rate" (Exchange Rate) -> transaction.exchange_rate_bank
+- "total_fees" (Sum of all fees) -> fees.total_fees
+
+## ANALYSIS LOGIC:
+- You must also calculate the spread cost ('analysis.cost_of_spread_usd') based on the extracted 'exchange_rate_bank' vs the 'mid_market_rate'.
+`;
 
 // Relaxed extraction schema (removed required fields to prevent Gemini validation errors)
 const EXTRACTION_SCHEMA = {
@@ -94,6 +100,7 @@ const EXTRACTION_SCHEMA = {
     extraction: {
       type: Type.OBJECT,
       properties: {
+        transaction_reference: { type: Type.STRING }, // Mapped from tx_ref
         bank_name: { type: Type.STRING },
         transaction_date: { type: Type.STRING },
         sender_name: { type: Type.STRING },
