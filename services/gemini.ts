@@ -1,9 +1,10 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 
 const getAI = () => {
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '';
+  // Prioritize NEXT_PUBLIC_GEMINI_API_KEY for Vercel/Next.js environments
+  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
   if (!apiKey) {
-    console.warn("Gemini API Key is missing.");
+    console.warn("Gemini API Key is missing. Please set NEXT_PUBLIC_GEMINI_API_KEY.");
   }
   return new GoogleGenAI({ apiKey });
 };
