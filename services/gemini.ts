@@ -235,8 +235,8 @@ const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
   }
 };
 
-// --- MAIN PIPELINE ---
-export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
+// --- INTERNAL AI PIPELINE (FALLBACK) ---
+const extractQuoteDataViaLocalAI = async (base64: string, mimeType: string = 'image/jpeg') => {
   let rawText = "";
 
   try {
@@ -252,6 +252,97 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
 
   const structuredData = await analyzeTextWithGemini(rawText);
   return structuredData;
+};
+
+// --- MAIN PIPELINE (WEBHOOK FIRST) ---
+export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
+  const WEBHOOK_URL = "https://eoqquswfp7c5ke3.m.pipedream.net";
+  
+  // 1. Try Webhook Integration
+  try {
+    console.log("Atlas: Uploading to Integration Node (Pipedream)...");
+    
+    // Using a simpler JSON payload for webhook compatibility
+    const response = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file: base64,
+        mimeType: mimeType,
+        timestamp: Date.now()
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Integration Node Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log("Integration Node Response:", data);
+
+    // 2. Map Webhook Response to RateGuard Schema
+    // Handles various response structures (flat or nested in data/body)
+    const source = data.data || data.body || data;
+
+    // Helper for case-insensitive key lookup
+    const find = (keys: string[]) => {
+      const lowerKeys = keys.map(k => k.toLowerCase());
+      for (const k of Object.keys(source)) {
+        if (lowerKeys.includes(k.toLowerCase())) return source[k];
+      }
+      return null;
+    };
+
+    // Extract fields
+    const bank = find(['bank', 'bank_name', 'institution']) || "Unidentified Bank";
+    const amount = parseFloat(find(['amount', 'principal', 'original_amount', 'val'])) || 0;
+    const rate = parseFloat(find(['rate', 'exchange_rate', 'fx_rate', 'price', 'exchange_rate_bank'])) || 0;
+    const currency = find(['currency', 'original_currency', 'source_currency', 'code']) || "USD";
+    const date = find(['date', 'value_date', 'transaction_date', 'time']) || new Date().toISOString().split('T')[0];
+    const fees = parseFloat(find(['fees', 'fee', 'total_fees', 'commission'])) || 0;
+    const pair = find(['pair', 'currency_pair']) || (currency === 'USD' ? 'USD/EUR' : `USD/${currency}`);
+
+    // Fallback calculation logic if webhook doesn't provide analysis
+    const estimatedMidMarket = rate > 0 ? rate / 1.025 : 0;
+    const estimatedSpreadCost = (amount > 0 && rate > 0) ? (amount * 0.025) : 0;
+
+    return {
+      extraction: {
+        bank_name: normalizeBankName(bank),
+        transaction_reference: find(['id', 'ref', 'reference', 'transaction_id']) || `WEBHOOK-${Date.now()}`,
+        sender_name: null,
+        beneficiary_name: null
+      },
+      transaction: {
+        original_amount: amount,
+        original_currency: currency,
+        converted_amount: null,
+        converted_currency: null,
+        exchange_rate_bank: rate,
+        currency_pair: pair,
+        value_date: date
+      },
+      fees: {
+        items: [],
+        total_fees: fees
+      },
+      analysis: {
+        mid_market_rate: Number(estimatedMidMarket.toFixed(4)),
+        cost_of_spread_usd: Number(estimatedSpreadCost.toFixed(2)),
+        total_cost_usd: fees + estimatedSpreadCost
+      },
+      dispute: {
+        recommended: estimatedSpreadCost > 100,
+        reason: estimatedSpreadCost > 100 ? "Spread exceeds 2.0%" : null
+      },
+      source: 'webhook'
+    };
+
+  } catch (error) {
+    console.warn("Integration Node Unreachable, switching to On-Device Intelligence:", error);
+    // 3. Fallback to Local/Gemini Pipeline
+    return extractQuoteDataViaLocalAI(base64, mimeType);
+  }
 };
 
 // --- SUPPORT CHAT ---
