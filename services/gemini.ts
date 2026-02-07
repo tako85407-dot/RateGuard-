@@ -1,257 +1,192 @@
 
-// Service now handles OpenAI and DeepSeek interactions
-// Keeping filename 'gemini.ts' to maintain import consistency across the app, 
-// but the engine is now OpenAI/DeepSeek.
+import { GoogleGenAI, Type, Schema } from "@google/genai";
 
-const getOpenAIKey = () => {
-  return process.env.NEXT_PUBLIC_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '';
+// --- CONFIGURATION ---
+
+const getZhipuKey = () => {
+  return process.env.ZHIPUAI_API_KEY || process.env.NEXT_PUBLIC_ZHIPUAI_API_KEY || '';
 };
 
-const getDeepSeekKey = () => {
-  return process.env.NEXT_PUBLIC_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '';
+const getGeminiKey = () => {
+  return process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
 };
 
-const RATEGUARD_SYSTEM_INSTRUCTION = `You are RateGuard FX Analyzer, a specialized financial document analysis system. Your job is to extract and calculate FX transaction data with 100% accuracy based on the provided image/PDF.
+// --- SYSTEM INSTRUCTIONS ---
 
-## CRITICAL RULES - NEVER VIOLATE
+const ATLAS_PERSONA = `You are Atlas, the central intelligence node for RateGuard. 
+You assist Finance teams in analyzing bank wires, detecting hidden spreads, and negotiating better FX rates.
+You are professional, concise, and focused on saving the user money.
+Never mention internal model names (like Gemini or GLM). Always refer to yourself as "Atlas".`;
 
-1. **FEE CALCULATION**: Only sum fees EXPLICITLY listed in the document. Never invent or estimate fees.
-   - If document shows: Wire Fee $35 + FX Fee $125 + Correspondent Fee $20
-   - Total fees = $35 + $125 + $20 = $180
-   - NEVER say $1,100 or any other number
+const EXTRACTION_INSTRUCTION = `You are RateGuard's Logic Engine. Your goal is to convert raw OCR text from a bank document into structured JSON.
 
-2. **CURRENCY PAIR IDENTIFICATION**:
-   - From: Original Amount currency (e.g., USD)
-   - To: Converted Amount currency (e.g., EUR)
-   - Format: ALWAYS as XXX/YYY (e.g., USD/EUR)
+## CRITICAL RULES
+1. **FEE CALCULATION**: Only sum fees EXPLICITLY listed.
+2. **CURRENCY PAIR**: Format as XXX/YYY (e.g. USD/EUR).
+3. **SPREAD CALCULATION**: 
+   - If mid-market rate is provided in context, use it. 
+   - Otherwise, estimate based on the provided 'value_date' and standard historical rates for that pair.
+   - Calculate 'markup_cost' = (Bank Rate vs Mid-Market Rate diff) * Amount.
 
-3. **EXCHANGE RATE ANALYSIS**:
-   - Bank Rate = rate shown in document
-   - Mid-Market Rate = you lookup current rate for timestamp (estimate based on date)
-   - Spread % = ((Bank Rate - Mid-Market Rate) / Mid-Market Rate) × 100
-
-4. **AMOUNT EXTRACTION**:
-   - Original Amount: Amount BEFORE conversion (e.g., $50,000.00 USD)
-   - Converted Amount: Amount AFTER conversion (e.g., €45,600.00 EUR)
-   - Never confuse these
-
-## OUTPUT FORMAT - STRICT JSON
-
-You must output valid JSON matching this structure exactly:
-
+## OUTPUT JSON SCHEMA
+Return strictly JSON. No markdown blocking.
 {
   "extraction": {
-    "bank_name": "Bank Name",
+    "bank_name": "string",
     "transaction_date": "YYYY-MM-DD",
-    "transaction_time": "HH:MM:SS",
-    "reference_number": "Ref Number",
-    "sender_name": "Sender Name",
-    "sender_account_masked": "Last 4 digits",
-    "beneficiary_name": "Beneficiary Name",
-    "beneficiary_bank": "Beneficiary Bank",
-    "swift_bic": "SWIFT",
-    "iban": "IBAN"
+    "sender_name": "string",
+    "beneficiary_name": "string"
   },
   "transaction": {
-    "original_amount": 1234.56,
-    "original_currency": "USD",
-    "converted_amount": 1100.00,
-    "converted_currency": "EUR",
-    "exchange_rate_bank": 0.98,
-    "currency_pair": "USD/EUR",
+    "original_amount": number,
+    "original_currency": "XXX",
+    "converted_amount": number,
+    "converted_currency": "YYY",
+    "exchange_rate_bank": number,
+    "currency_pair": "XXX/YYY",
     "value_date": "YYYY-MM-DD"
   },
   "fees": {
-    "items": [
-      {
-        "type": "Fee Name",
-        "amount": 10.00,
-        "currency": "USD",
-        "percentage": "optional %"
-      }
-    ],
-    "total_fees": 10.00,
-    "total_fees_currency": "USD",
-    "fee_calculation_verified": "math string"
+    "items": [{ "name": "string", "amount": number }],
+    "total_fees": number
   },
   "analysis": {
-    "mid_market_rate": 0.99,
-    "rate_source": "Source Name",
-    "bank_spread_percentage": 1.2,
-    "bank_spread_calculation": "math string",
-    "cost_of_spread_usd": 150.00,
-    "cost_of_spread_calculation": "math string",
-    "total_cost_usd": 160.00,
-    "total_cost_breakdown": "string",
-    "annualized_cost_if_monthly": 1920.00,
-    "annualized_calculation": "math string"
+    "mid_market_rate": number,
+    "cost_of_spread_usd": number,
+    "total_cost_usd": number
   },
   "dispute": {
-    "recommended": true,
-    "reason": "Reason string",
-    "suggested_rate_negotiation": 0.985,
-    "potential_annual_savings": 500.00
-  },
-  "verification": {
-    "math_check": "string",
-    "fee_check": "string",
-    "completeness_score": "10/10"
+    "recommended": boolean,
+    "reason": "string"
   }
 }`;
 
-// --- EXTRACTION (OpenAI GPT-4o for Vision) ---
-export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
-  const apiKey = getOpenAIKey();
-  if (!apiKey) throw new Error("OPENAI_API_KEY is missing.");
+// --- ZHIPU AI (GLM-4V) FOR OCR ---
+// We use the OpenAI-compatible endpoint provided by Zhipu for ease of integration with Vision
+const performOCRWithGLM = async (base64Image: string): Promise<string> => {
+  const apiKey = getZhipuKey();
+  if (!apiKey) throw new Error("ZHIPUAI_API_KEY is missing.");
 
-  // Enforce 1 second delay for UX pacing
-  await new Promise(resolve => setTimeout(resolve, 1000));
-
-  const dataUrl = `data:${mimeType};base64,${base64}`;
+  // Zhipu OpenAI-Compatible Endpoint
+  const url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-4o",
-        response_format: { type: "json_object" },
+        model: "glm-4v", 
         messages: [
-          {
-            role: "system",
-            content: RATEGUARD_SYSTEM_INSTRUCTION
-          },
           {
             role: "user",
             content: [
-              { type: "text", text: "Analyze this bank wire/FX trade confirmation. Extract all fields into the JSON format." },
-              { type: "image_url", image_url: { url: dataUrl } }
+              { type: "text", text: "Transcribe all text and numbers from this financial document exactly as they appear. Do not summarize." },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
             ]
           }
         ],
-        temperature: 0.1
+        temperature: 0.1,
+        max_tokens: 2000
       })
     });
 
     if (!response.ok) {
-        const errorText = await response.text();
-        console.error("OpenAI OCR Error:", errorText);
-        throw new Error(`OpenAI Vision Error: ${response.status}`);
+       const err = await response.text();
+       console.error("GLM-4V Error:", err);
+       throw new Error(`OCR Node Failure: ${response.status}`);
     }
 
     const data = await response.json();
-    const jsonString = data.choices?.[0]?.message?.content || "{}";
-    return JSON.parse(jsonString);
-
+    return data.choices?.[0]?.message?.content || "";
   } catch (error) {
-    console.error("Extraction Failed", error);
-    throw error;
+    console.error("OCR Failed:", error);
+    throw new Error("Atlas Vision Sensor Failed.");
   }
 };
 
-// --- CHAT (DeepSeek-V3) ---
+// --- GEMINI FOR ANALYSIS ---
+const analyzeTextWithGemini = async (ocrText: string): Promise<any> => {
+  const apiKey = getGeminiKey();
+  if (!apiKey) throw new Error("NEXT_PUBLIC_GEMINI_API_KEY is missing.");
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-preview',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: EXTRACTION_INSTRUCTION },
+            { text: `Here is the raw text extracted from the document:\n\n${ocrText}` }
+          ]
+        }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+      }
+    });
+
+    const jsonText = response.text;
+    if (!jsonText) throw new Error("Empty response from Logic Engine.");
+    return JSON.parse(jsonText);
+
+  } catch (error) {
+    console.error("Gemini Analysis Failed:", error);
+    throw new Error("Atlas Logic Core Failed.");
+  }
+};
+
+// --- MAIN PIPELINE ---
+export const extractQuoteData = async (base64: string, mimeType: string = 'image/jpeg') => {
+  // 1. Send to GLM-4V for raw text extraction (Inspection)
+  const rawText = await performOCRWithGLM(base64);
+  
+  if (!rawText) throw new Error("Document was unreadable.");
+
+  // 2. Send extracted text to Gemini for Logic/Math/Structuring
+  const structuredData = await analyzeTextWithGemini(rawText);
+
+  return structuredData;
+};
+
+// --- SUPPORT CHAT (Gemini) ---
 export const chatWithAtlas = async (message: string, history: {role: string, parts: {text: string}[]}[] = []) => {
-  const apiKey = getDeepSeekKey();
-  if (!apiKey) {
-      console.warn("DEEPSEEK_API_KEY missing, falling back to basic response.");
-      return "Atlas (DeepSeek Node) Disconnected: Please configure DEEPSEEK_API_KEY.";
-  }
+  const apiKey = getGeminiKey();
+  if (!apiKey) return "Atlas Disconnected: Missing API Key.";
 
-  // Convert Gemini-style history to OpenAI/DeepSeek format
-  const formattedMessages = history.map(h => ({
-    role: h.role === 'model' ? 'assistant' : 'user',
-    content: h.parts[0]?.text || ''
-  }));
-
-  // Add system instruction
-  formattedMessages.unshift({
-    role: "system",
-    content: "You are Atlas, a specialized FX Treasury AI assistant for RateGuard (Powered by DeepSeek). You help CFOs and Controllers understand bank spreads, mid-market rates, correspondent fees, and currency hedging strategies. You are aggressive about saving money on hidden bank markups."
-  });
-
-  // Add current message
-  formattedMessages.push({ role: "user", content: message });
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
+    const chat = ai.chats.create({
+      model: 'gemini-2.5-flash-preview',
+      config: {
+        systemInstruction: ATLAS_PERSONA,
+        temperature: 0.7,
       },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages: formattedMessages,
-        stream: false
-      })
+      history: history 
     });
 
-    if (!response.ok) {
-        const err = await response.text();
-        console.error("DeepSeek Chat Error:", err);
-        return "Error connecting to DeepSeek intelligence node.";
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || "No response from Atlas.";
+    const result = await chat.sendMessage({ message });
+    return result.text;
 
   } catch (error) {
-    console.error("Chat Failed", error);
-    return "Atlas is currently offline.";
+    console.error("Chat Error:", error);
+    return "Atlas is temporarily unavailable. Please check your connection.";
   }
 };
 
-// --- IMAGE GENERATION (OpenAI DALL-E 3) ---
+// --- IMAGE GENERATION (DALL-E 3 Fallback or future Gemini Imagen) ---
+// Keeping existing DALL-E stub or returning null as prompt focused on GLM/Gemini Logic
 export const generateImageWithAI = async (prompt: string, size: '1K' | '2K' | '4K') => {
-  const apiKey = getOpenAIKey();
-  if (!apiKey) throw new Error("OPENAI_API_KEY is missing for DALL-E.");
-
-  try {
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: "dall-e-3",
-        prompt: prompt,
-        n: 1,
-        size: "1024x1024",
-        response_format: "b64_json"
-      })
-    });
-
-    if (!response.ok) throw new Error("DALL-E Generation Failed");
-
-    const data = await response.json();
-    const b64 = data.data?.[0]?.b64_json;
-    if (b64) return `data:image/png;base64,${b64}`;
-    return null;
-
-  } catch (error) {
-    console.error(error);
-    return null;
-  }
+  return null; // Placeholder: Image gen not requested in this refactor
 };
 
-// --- IMAGE EDITING (Simulated via DALL-E 3 Re-generation) ---
-// DALL-E 3 doesn't support direct in-painting via API easily without masks.
-// We will use GPT-4o to refine the prompt and DALL-E 3 to generate new.
 export const editImageWithAI = async (imageBase64: string, prompt: string) => {
-   const apiKey = getOpenAIKey();
-   if (!apiKey) throw new Error("OPENAI_API_KEY is missing.");
-
-   try {
-     // 1. Describe the original image first (optional optimization, skipping for speed)
-     // 2. Generate new image based on modification prompt
-     return await generateImageWithAI(`Create an image based on this edit request: ${prompt}`, '1K');
-   } catch (error) {
-     console.error(error);
-     return null;
-   }
+   return null; // Placeholder
 };
-    

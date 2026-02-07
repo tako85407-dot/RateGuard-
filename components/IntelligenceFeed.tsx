@@ -29,8 +29,8 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1000000) {
-      setErrorMsg("File Size Exceeded. PDF/Image must be under 1MB.");
+    if (file.size > 5000000) { // Increased limit slightly for OCR
+      setErrorMsg("File Size Exceeded. Must be under 5MB.");
       return;
     }
 
@@ -40,22 +40,16 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       return;
     }
     
-    // Capture IDs immediately to ensure they are available in the async callback
     const currentUid = userProfile.uid;
     const currentOrgId = userProfile.orgId;
 
-    if (!currentUid) {
-        setErrorMsg("User Profile invalid. Please reload.");
-        return;
-    }
-
-    if (!currentOrgId) {
-        setErrorMsg("Organization Profile missing. Please refresh.");
+    if (!currentUid || !currentOrgId) {
+        setErrorMsg("Session Error. Please reload.");
         return;
     }
 
     setIsUploading(true);
-    setStatusText("GPT-4o Vision: Scanning Document...");
+    setStatusText("Atlas: Scanning Document Structure...");
     setErrorMsg(null);
     logAnalyticsEvent('analysis_started', { fileSize: file.size });
 
@@ -64,18 +58,18 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       try {
         const base64 = (e.target?.result as string).split(',')[1];
         
-        // This now calls OpenAI GPT-4o
+        // Step 1: GLM-4V OCR -> Step 2: Gemini Analysis
         const extracted = await extractQuoteData(base64, file.type);
         
-        setStatusText("Atlas: Structuring JSON Data...");
+        setStatusText("Atlas: Calculating Hidden Spreads...");
 
-        // Map specific fields from the complex new AI schema to our flat internal model
+        // Map AI response to QuoteData
         const mappedData: Partial<QuoteData> = {
             bank: extracted.extraction?.bank_name || 'Unknown Bank',
             pair: extracted.transaction?.currency_pair || 'USD/EUR',
             amount: extracted.transaction?.original_amount || 0,
             exchangeRate: extracted.transaction?.exchange_rate_bank || 1.0,
-            fees: extracted.fees?.items?.map((f: any) => ({ name: f.type, amount: f.amount })) || [],
+            fees: extracted.fees?.items?.map((f: any) => ({ name: f.name || f.type, amount: f.amount })) || [],
             valueDate: extracted.transaction?.value_date || new Date().toISOString().split('T')[0],
             markupCost: extracted.analysis?.cost_of_spread_usd || 0,
             midMarketRate: extracted.analysis?.mid_market_rate || 0,
@@ -88,7 +82,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
           currentOrgId,
           mappedData, 
           base64, 
-          extracted // Save the full rich object as raw data
+          extracted
         );
 
         if (result.success) {
@@ -97,7 +91,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
              userId: currentUid,
              orgId: currentOrgId,
              ...mappedData,
-             // Explicit fallback for new FX fields if extraction missed them to prevent runtime crash
+             // Fallbacks
              bank: mappedData.bank || 'Unknown Bank',
              pair: mappedData.pair || 'USD/EUR',
              amount: mappedData.amount || 0,
@@ -124,7 +118,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 
       } catch (error: any) { 
         console.error(error); 
-        setErrorMsg(error.toString());
+        setErrorMsg("Atlas could not process this document. Ensure it is a clear bank confirmation.");
       } finally { 
         setIsUploading(false); 
         setStatusText("Idle");
@@ -190,7 +184,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                 {isLocked ? "Credits Depleted" : "Drop Bank Confirmation"}
               </p>
               <p className="text-zinc-700 text-[9px] font-bold uppercase mt-1">
-                {isLocked ? "Upgrade to Enterprise for Unlimited" : "PDF / JPG (Max 1MB)"}
+                {isLocked ? "Upgrade to Enterprise for Unlimited" : "PDF / JPG (Max 5MB)"}
               </p>
             </div>
           </div>
@@ -332,4 +326,3 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 };
 
 export default IntelligenceFeed;
-    
