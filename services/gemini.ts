@@ -107,13 +107,16 @@ const performOCRWithGLM = async (base64Image: string): Promise<string> => {
           {
             role: "user",
             content: [
-              { type: "text", text: "Transcribe all text and numbers from this financial document exactly as they appear. Do not summarize." },
+              { 
+                type: "text", 
+                text: "You are a specialized OCR engine. ANALYZE this financial document image (Bank Statement, Invoice, Receipt, or Handwritten Note). \n\nINSTRUCTIONS:\n1. Transcribe ALL text, numbers, dates, and tables exactly as they appear.\n2. Do not summarize. Do not explain.\n3. Preserve the structure of tables row-by-row.\n4. If the document is handwritten, transcribe it to the best of your ability.\n5. Output ONLY the raw transcription." 
+              },
               { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
             ]
           }
         ],
         temperature: 0.1,
-        max_tokens: 2000
+        max_tokens: 4000
       })
     });
 

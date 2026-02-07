@@ -11,11 +11,11 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
   const [success, setSuccess] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
 
+  // Use the env var or fallback to the provided client ID
+  const PAYPAL_CLIENT_ID = import.meta.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID as string) || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
+
   useEffect(() => {
-    // Explicit use of import.meta.env for Vite static replacement
-    const paypalClientId = import.meta.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID as string) || "AcfpjwLgDGThXpyOnYWUoWdFG7SM_h485vJULqGENmPyeiwfD20Prjfx6xRrqYOSZlM4s-Rnh3OfjXhk";
-    
-    // Check if script already exists
+    // Check if script already exists to avoid duplicates
     if (document.getElementById('paypal-sdk')) {
       setScriptLoaded(true);
       return;
@@ -23,14 +23,17 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
 
     const script = document.createElement('script');
     script.id = 'paypal-sdk';
-    script.src = `https://www.paypal.com/sdk/js?client-id=${paypalClientId}&vault=true&intent=subscription`;
+    script.src = `https://www.paypal.com/sdk/js?client-id=${PAYPAL_CLIENT_ID}&vault=true&intent=subscription`;
     script.setAttribute('data-sdk-integration-source', 'button-factory');
     script.async = true;
     script.onload = () => setScriptLoaded(true);
+    script.onerror = (err) => {
+      console.error("PayPal Script Load Error", err);
+    };
     document.body.appendChild(script);
 
     return () => {
-      // Optional: Cleanup if navigating away before load
+      // Optional cleanup
     };
   }, []);
 
@@ -39,49 +42,54 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
     if (!orgId || !uid || !scriptLoaded) return;
 
     const renderPaypalButton = () => {
-      try {
-        const paypal = (window as any).paypal;
-        const containerId = 'paypal-button-container-P-1UB7789392647964ANF3SL4I';
-        const planId = 'P-1UB7789392647964ANF3SL4I';
-        
-        const container = document.getElementById(containerId);
+      const paypal = (window as any).paypal;
+      const containerId = 'paypal-button-container-P-1UB7789392647964ANF3SL4I';
+      const planId = 'P-1UB7789392647964ANF3SL4I';
+      
+      const container = document.getElementById(containerId);
 
-        if (paypal && container && container.innerHTML === '') {
-            paypal.Buttons({
-              style: {
-                shape: 'rect',
-                color: 'gold',
-                layout: 'vertical',
-                label: 'subscribe'
-              },
-              createSubscription: function(data: any, actions: any) {
-                return actions.subscription.create({
-                  plan_id: planId
-                });
-              },
-              onApprove: function(data: any, actions: any) {
-                setIsProcessing(true);
-                if (data.subscriptionID) {
-                   processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
-                     if (upgraded) {
-                       setSuccess(true);
-                       window.location.reload(); 
-                     }
-                     setIsProcessing(false);
-                   });
-                } else {
+      // Ensure container exists and is empty before rendering
+      if (paypal && container && container.innerHTML === '') {
+          paypal.Buttons({
+            style: {
+              shape: 'rect',
+              color: 'gold',
+              layout: 'vertical',
+              label: 'subscribe'
+            },
+            createSubscription: function(data: any, actions: any) {
+              return actions.subscription.create({
+                plan_id: planId
+              });
+            },
+            onApprove: function(data: any, actions: any) {
+              setIsProcessing(true);
+              if (data.subscriptionID) {
+                 processEnterpriseUpgrade(uid, orgId, data.subscriptionID).then((upgraded) => {
+                   if (upgraded) {
+                     setSuccess(true);
+                     window.location.reload(); 
+                   } else {
+                     alert("Upgrade recorded but sync failed. Please contact support.");
+                   }
                    setIsProcessing(false);
-                   alert('Error: No subscription ID returned.');
-                }
+                 });
+              } else {
+                 setIsProcessing(false);
+                 alert('Error: No subscription ID returned.');
               }
-            }).render('#' + containerId);
-        }
-      } catch (err) {
-        console.error("PayPal Initialization Error:", err);
+            },
+            onError: function (err: any) {
+              console.error("PayPal Button Error:", err);
+              // Do not auto-fix or hide error, let user see console or alert
+              alert("PayPal Error: " + err);
+            }
+          }).render('#' + containerId);
       }
     };
 
     if (!success) {
+      // Small delay to ensure DOM is ready
       const timer = setTimeout(renderPaypalButton, 500);
       return () => clearTimeout(timer);
     }
@@ -166,6 +174,7 @@ const PaymentPage: React.FC<PaymentPageProps> = ({ orgId }) => {
             <div className="text-center text-[10px] font-black text-zinc-400 uppercase tracking-widest">
               Secure Checkout via PayPal
             </div>
+            {/* The Container ID must match what is used in the render call */}
             <div id="paypal-button-container-P-1UB7789392647964ANF3SL4I" className="min-h-[150px]"></div>
           </div>
         </div>
