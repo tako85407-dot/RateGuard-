@@ -4,14 +4,24 @@ import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 
 // PAIRS CONFIGURATION
 const TRACKED_PAIRS = [
-  { id: 'eurusd', symbol: 'EUR/USD', base: 1.0850 },
-  { id: 'gbpusd', symbol: 'GBP/USD', base: 1.2650 },
-  { id: 'usdcad', symbol: 'USD/CAD', base: 1.4150 },
-  { id: 'usdjpy', symbol: 'USD/JPY', base: 151.20 },
-  { id: 'audusd', symbol: 'AUD/USD', base: 0.6540 },
-  { id: 'usdzar', symbol: 'USD/ZAR', base: 18.950 },
-  { id: 'usdtry', symbol: 'USD/TRY', base: 32.100 },
-  { id: 'usdmyr', symbol: 'USD/MYR', base: 4.750 },
+  // Global Majors
+  { id: 'usdeur', symbol: 'USD/EUR', base: 0.92 },
+  { id: 'usdgbp', symbol: 'USD/GBP', base: 0.79 },
+  { id: 'usdcad', symbol: 'USD/CAD', base: 1.36 },
+  { id: 'usdaud', symbol: 'USD/AUD', base: 1.52 },
+  { id: 'usdjpy', symbol: 'USD/JPY', base: 151.50 },
+
+  // High Leakage Pairs
+  { id: 'usdzar', symbol: 'USD/ZAR', base: 18.85 },
+  { id: 'usdzwg', symbol: 'USD/ZWG', base: 13.50 }, // Zimbabwe Gold
+  { id: 'usdinr', symbol: 'USD/INR', base: 83.50 },
+  { id: 'usdmxn', symbol: 'USD/MXN', base: 16.70 },
+  { id: 'usdbrl', symbol: 'USD/BRL', base: 5.15 },
+
+  // Business Crosses
+  { id: 'eurgbp', symbol: 'EUR/GBP', base: 0.85 },
+  { id: 'gbpeur', symbol: 'GBP/EUR', base: 1.17 },
+  { id: 'usdcny', symbol: 'USD/CNY', base: 7.23 },
 ];
 
 // --- RATEGUARD FX INTEGRATOR LOGIC ---

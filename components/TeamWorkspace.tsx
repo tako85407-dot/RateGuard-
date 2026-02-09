@@ -1,8 +1,21 @@
-
 import React, { useState } from 'react';
 import { Users, UserPlus, Clock, Zap, Shield, CheckCircle, Copy, AlertCircle, Loader2 } from 'lucide-react';
 import { TeamMember } from '../types';
 import { auth, addTeammateByUID } from '../services/firebase';
+import { motion } from 'framer-motion';
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { y: 20, opacity: 0 },
+  visible: { y: 0, opacity: 1 }
+};
 
 const TeamWorkspace: React.FC = () => {
   const [inviteUid, setInviteUid] = useState('');
@@ -42,7 +55,12 @@ const TeamWorkspace: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-500">
+    <motion.div 
+      className="space-y-10"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
       <div className="flex items-end justify-between">
         <div>
           <h2 className="text-4xl font-black text-white tracking-tighter mb-2">Team Workspace</h2>
@@ -51,7 +69,7 @@ const TeamWorkspace: React.FC = () => {
       </div>
 
       {/* Invite Protocol Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6">
          {/* The Joiner: My ID */}
          <div className="p-8 bg-zinc-900 border border-zinc-800 rounded-[2rem] space-y-6">
             <div className="flex items-center gap-3 mb-2">
@@ -111,10 +129,10 @@ const TeamWorkspace: React.FC = () => {
                </div>
             )}
          </div>
-      </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        <div className="md:col-span-8 space-y-6">
+        <motion.div variants={itemVariants} className="md:col-span-8 space-y-6">
            <div className="bg-[#121826]/40 border border-zinc-800 rounded-[2.5rem] overflow-hidden shadow-2xl">
               <table className="w-full text-left">
                 <thead>
@@ -126,8 +144,14 @@ const TeamWorkspace: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/30">
-                  {members.map(m => (
-                    <tr key={m.id} className="hover:bg-zinc-800/20 transition-all">
+                  {members.map((m, i) => (
+                    <motion.tr 
+                      key={m.id} 
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className="hover:bg-zinc-800/20 transition-all"
+                    >
                        <td className="px-10 py-6">
                           <div className="flex items-center gap-4">
                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs ${m.name === 'Atlas AI' ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>
@@ -150,14 +174,14 @@ const TeamWorkspace: React.FC = () => {
                        <td className="px-6 py-6 text-right">
                           <span className="text-xs text-zinc-500 font-medium">{m.activity}</span>
                        </td>
-                    </tr>
+                    </motion.tr>
                   ))}
                 </tbody>
               </table>
            </div>
-        </div>
+        </motion.div>
 
-        <div className="md:col-span-4 space-y-6">
+        <motion.div variants={itemVariants} className="md:col-span-4 space-y-6">
            <div className="bg-zinc-900 border border-zinc-800 rounded-[2rem] p-8 space-y-6 shadow-xl">
               <div className="flex items-center gap-3">
                  <Shield size={20} className="text-blue-500" />
@@ -190,9 +214,9 @@ const TeamWorkspace: React.FC = () => {
                  ))}
               </div>
            </div>
-        </div>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

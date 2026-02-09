@@ -5,16 +5,11 @@ const axios = require("axios");
 admin.initializeApp();
 const db = admin.firestore();
 
-// Pairs to track
+// Pairs to track - Updated to specific user request including ZWG and High Leakage pairs
 const CURRENCY_PAIRS = [
-  { base: "USD", quote: "EUR" },
-  { base: "GBP", quote: "USD" },
-  { base: "USD", quote: "CAD" },
-  { base: "USD", quote: "JPY" },
-  { base: "AUD", quote: "USD" },
-  { base: "USD", quote: "ZAR" },
-  { base: "USD", quote: "TRY" },
-  { base: "USD", quote: "MYR" }
+  "USD-EUR", "USD-GBP", "USD-CAD", "USD-AUD", "USD-JPY", // Majors
+  "USD-ZAR", "USD-ZWG", "USD-INR", "USD-MXN", "USD-BRL", // High Leakage
+  "EUR-GBP", "GBP-EUR", "USD-CNY"                        // Business Crosses
 ];
 
 // Support both standard env vars (e.g. locally or other platforms) and Firebase config
@@ -33,9 +28,9 @@ async function performRateSync() {
   const timestamp = admin.firestore.FieldValue.serverTimestamp();
   const results = [];
 
-  const promises = CURRENCY_PAIRS.map(async (pair) => {
-    const query = `${pair.base}-${pair.quote}`;
-    const docId = `${pair.base}_${pair.quote}`;
+  const promises = CURRENCY_PAIRS.map(async (pairString) => {
+    const query = pairString;
+    const docId = pairString.replace('-', '_'); // e.g. USD-EUR -> USD_EUR
     
     try {
       // Fetch from SerpApi (Google Finance Engine)

@@ -1,6 +1,20 @@
 import React, { useState } from 'react';
 import { QuoteData } from '../types';
-import { Search, Filter, MoreHorizontal, FileText, Users, Download, AlertCircle, CheckCircle } from 'lucide-react';
+import { Search, Filter, FileText, Download, AlertCircle, CheckCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.05 }
+  }
+};
+
+const rowVariants = {
+  hidden: { opacity: 0, x: -10 },
+  visible: { opacity: 1, x: 0 }
+};
 
 const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
   const [filter, setFilter] = useState('');
@@ -12,7 +26,12 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
   );
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <motion.div 
+      className="space-y-8"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h2 className="text-3xl font-bold tracking-tight mb-2 flex items-center gap-3">
@@ -69,9 +88,17 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
                   <th className="p-6 text-right">Status</th>
                 </tr>
               </thead>
-              <tbody>
+              <motion.tbody 
+                variants={containerVariants}
+                initial="hidden"
+                animate="visible"
+              >
                 {filteredQuotes.map((q) => (
-                  <tr key={q.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/20 transition-all group">
+                  <motion.tr 
+                    key={q.id} 
+                    variants={rowVariants}
+                    className="border-b border-zinc-800/50 hover:bg-zinc-800/20 transition-all group"
+                  >
                     <td className="p-6 text-xs text-zinc-500 font-mono">
                       {new Date(q.createdAt).toLocaleDateString()}
                     </td>
@@ -115,14 +142,14 @@ const QuoteHistory: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
                         )}
                       </div>
                     </td>
-                  </tr>
+                  </motion.tr>
                 ))}
-              </tbody>
+              </motion.tbody>
             </table>
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

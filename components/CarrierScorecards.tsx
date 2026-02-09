@@ -1,7 +1,26 @@
-
 import React from 'react';
 import { QuoteData } from '../types';
 import { Star, AlertTriangle, TrendingDown, TrendingUp } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1
+    }
+  }
+};
+
+const cardVariants = {
+  hidden: { y: 20, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: { type: "spring", stiffness: 100 }
+  }
+};
 
 const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
   const carriers = [
@@ -12,15 +31,25 @@ const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
   ];
 
   return (
-    <div className="space-y-10 animate-in fade-in duration-500">
+    <motion.div 
+      className="space-y-10"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
       <div>
         <h2 className="text-3xl font-bold text-white mb-2">Bank Scorecards</h2>
         <p className="text-zinc-500">The Reliability Layer: Fairness of execution vs mid-market benchmarks.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {carriers.map(c => (
-          <div key={c.name} className="bg-[#121826]/40 border border-zinc-800 rounded-[2rem] p-8 space-y-6 hover:border-blue-500/30 transition-all group">
+          <motion.div 
+            key={c.name} 
+            variants={cardVariants}
+            whileHover={{ y: -5, borderColor: 'rgba(59, 130, 246, 0.3)' }}
+            className="bg-[#121826]/40 border border-zinc-800 rounded-[2rem] p-8 space-y-6 transition-all group shadow-lg"
+          >
              <div className="flex items-center justify-between">
                 <div className="w-12 h-12 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center font-black text-blue-500">{c.name[0]}</div>
                 {c.trend === 'up' ? <TrendingUp size={18} className="text-emerald-500" /> : <TrendingDown size={18} className="text-red-500" />}
@@ -50,12 +79,15 @@ const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
                    <div className="text-sm font-bold text-white">{c.fees}</div>
                 </div>
              </div>
-          </div>
+          </motion.div>
         ))}
-      </div>
+      </motion.div>
 
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-[2.5rem] p-10 flex flex-col md:flex-row gap-10 items-center">
-         <div className="w-24 h-24 bg-blue-600/10 rounded-full flex items-center justify-center text-blue-500 shrink-0 border border-blue-500/20">
+      <motion.div 
+        variants={cardVariants}
+        className="bg-zinc-900/50 border border-zinc-800 rounded-[2.5rem] p-10 flex flex-col md:flex-row gap-10 items-center hover:bg-zinc-900/70 transition-colors"
+      >
+         <div className="w-24 h-24 bg-blue-600/10 rounded-full flex items-center justify-center text-blue-500 shrink-0 border border-blue-500/20 shadow-[0_0_30px_rgba(37,99,235,0.2)] animate-pulse">
             <AlertTriangle size={48} />
          </div>
          <div className="space-y-4">
@@ -64,11 +96,15 @@ const CarrierScorecards: React.FC<{ quotes: QuoteData[] }> = ({ quotes }) => {
               Bank <span className="text-white font-bold">Chase</span> is currently executing USD/EUR at 2.5% above mid-market, however, Atlas has tracked <span className="text-emerald-500 font-bold underline">Wise Business</span> at 0.4% spread. We recommend executing this wire via Wise to save ~$2,100.
             </p>
          </div>
-         <button className="px-8 py-4 bg-white text-[#121826] font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shrink-0 hover:scale-105 transition-all">
+         <motion.button 
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="px-8 py-4 bg-white text-[#121826] font-black uppercase tracking-widest text-[10px] rounded-2xl shadow-xl shrink-0 transition-all"
+         >
             Switch Provider
-         </button>
-      </div>
-    </div>
+         </motion.button>
+      </motion.div>
+    </motion.div>
   );
 };
 

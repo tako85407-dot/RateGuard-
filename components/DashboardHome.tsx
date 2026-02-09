@@ -11,6 +11,29 @@ interface DashboardHomeProps {
   onUpdateQuote?: (quote: QuoteData) => void;
 }
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { y: 20, opacity: 0 },
+  visible: {
+    y: 0,
+    opacity: 1,
+    transition: {
+      type: "spring",
+      stiffness: 100,
+      damping: 15
+    }
+  }
+};
+
 const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onUpdateQuote }) => {
   const [isApproving, setIsApproving] = useState(false);
   const [marketRates, setMarketRates] = useState<LiveRate[]>([]);
@@ -75,7 +98,12 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
   };
   
   return (
-    <div className="space-y-10 animate-in fade-in duration-500 relative">
+    <motion.div 
+      className="space-y-10 relative"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
       {/* Update Notification */}
       <AnimatePresence>
         {showUpdateNotification && (
@@ -98,7 +126,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <motion.div variants={itemVariants} className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h2 className="text-4xl font-black text-white tracking-tighter mb-2">Treasury Digest</h2>
           <p className="text-zinc-500 font-medium">System operational. <span className="text-blue-500 font-bold">FX Spread Protection</span> active.</p>
@@ -112,10 +140,10 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
               </div>
            </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Massive FX Ticker */}
-      <div className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden py-3 relative">
+      <motion.div variants={itemVariants} className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden py-3 relative">
         <div className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
         <div className="absolute right-0 top-0 bottom-0 bg-gradient-to-l from-[#0e121b] to-transparent w-20 z-10 pointer-events-none" />
         
@@ -153,12 +181,12 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
              ))
            )}
         </div>
-      </div>
+      </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Flagged Alert Panel */}
-        <div className="lg:col-span-2 bg-[#121826]/40 border border-zinc-800 rounded-[2.5rem] p-10 space-y-8 relative overflow-hidden group">
-           <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:scale-110 transition-transform">
+        <motion.div variants={itemVariants} className="lg:col-span-2 bg-[#121826]/40 border border-zinc-800 rounded-[2.5rem] p-10 space-y-8 relative overflow-hidden group">
+           <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:scale-110 transition-transform duration-700">
               <AlertCircle size={160} />
            </div>
            
@@ -176,7 +204,13 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
                 <div className="py-12 text-center text-zinc-600 italic text-sm border-2 border-dashed border-zinc-800 rounded-[2rem]">No excessive markups detected today.</div>
               ) : (
                 quotes.filter(q => q.status === 'flagged').slice(0, 2).map(q => (
-                  <div key={q.id} className="p-6 bg-zinc-950/80 rounded-[1.5rem] border border-zinc-800 flex items-center justify-between hover:border-red-500/50 transition-all cursor-pointer" onClick={() => onViewChange('quotes')}>
+                  <motion.div 
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.99 }}
+                    key={q.id} 
+                    className="p-6 bg-zinc-950/80 rounded-[1.5rem] border border-zinc-800 flex items-center justify-between hover:border-red-500/50 transition-all cursor-pointer shadow-lg" 
+                    onClick={() => onViewChange('quotes')}
+                  >
                     <div className="flex items-center gap-6">
                         <div className="w-12 h-12 rounded-2xl bg-zinc-900 flex items-center justify-center font-black text-zinc-500">{q.bank ? q.bank[0] : '?'}</div>
                         <div>
@@ -188,7 +222,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
                         <div className="text-xl font-black text-red-500 font-mono">${q.markupCost?.toFixed(2)}</div>
                         <div className="text-[10px] font-bold text-zinc-600 uppercase">Hidden Fee</div>
                     </div>
-                  </div>
+                  </motion.div>
                 ))
               )}
            </div>
@@ -196,12 +230,12 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
            <button onClick={() => onViewChange('quotes')} className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-black uppercase text-xs tracking-widest rounded-2xl transition-all flex items-center justify-center gap-2 relative z-10">
               View All Audits <ChevronRight size={16} />
            </button>
-        </div>
+        </motion.div>
 
         {/* Manager's Quick Actions */}
-        <div className="space-y-8">
+        <motion.div variants={itemVariants} className="space-y-8">
            <div className="bg-blue-600 rounded-[2.5rem] p-8 text-white space-y-6 shadow-2xl shadow-blue-500/20 relative overflow-hidden group">
-              <div className="absolute -right-4 -top-4 text-white opacity-10 group-hover:scale-110 transition-transform">
+              <div className="absolute -right-4 -top-4 text-white opacity-10 group-hover:scale-110 transition-transform duration-700">
                 <CheckCircle size={100} />
               </div>
               <h4 className="text-2xl font-black tracking-tighter uppercase relative z-10">Dispute Center</h4>
@@ -217,9 +251,9 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ quotes, onViewChange, onU
                  {isApproving ? 'Generating...' : 'Batch Dispute'}
               </button>
            </div>
-        </div>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
