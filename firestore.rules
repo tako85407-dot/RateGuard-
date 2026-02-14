@@ -3,39 +3,40 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // User Profiles - Relaxed to allow authenticated writes for credit updates
+    // Helper function to check if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Allow authenticated users to read/write their own data or shared org data
+    // For simplicity in this iteration as requested: "make sure anyone who is logged in can upload"
+    
     match /users/{userId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isSignedIn();
     }
     
-    // Settings
     match /settings/{userId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isSignedIn();
     }
     
-    // Quotes
     match /quotes/{quoteId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isSignedIn();
     }
     
-    // Rates
-    match /rates/{rateId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // Audits
     match /audits/{auditId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isSignedIn();
     }
     
-    // Organizations
     match /organizations/{orgId} {
-       allow read, write: if request.auth != null;
+       allow read, write: if isSignedIn();
     }
 
-    // Transactions
     match /transactions/{txnId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isSignedIn();
+    }
+    
+    match /rates/{rateId} {
+      allow read, write: if isSignedIn();
     }
   }
 }

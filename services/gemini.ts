@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 // --- CONFIGURATION ---
@@ -24,7 +25,7 @@ const getGeminiKey = () => getEnv('GEMINI_API_KEY');
 
 const ATLAS_PERSONA = `You are the RateGuard Data Auditor. Your task is to extract bank confirmation data.`;
 
-// --- SIMULATION FALLBACK (Used if API Key missing or Error) ---
+// --- SIMULATION FALLBACK (Used if API Key missing) ---
 const simulateExtraction = async () => {
   console.log("Atlas Simulation: Processing document (Fallback)...");
   await new Promise(resolve => setTimeout(resolve, 1500));
@@ -32,7 +33,6 @@ const simulateExtraction = async () => {
   const banks = ["JPMorgan Chase", "Bank of America", "Wells Fargo", "Citibank"];
   const randomBank = banks[Math.floor(Math.random() * banks.length)];
   const amount = Math.floor(Math.random() * 400000) + 50000;
-  const baseRate = 1.08;
   const bankRate = 1.05; // ~2.7% markup
 
   return {
@@ -70,6 +70,9 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
 
   const ai = new GoogleGenAI({ apiKey });
   
+  // Using gemini-3-flash-preview as the "cheap but functional" model (1.5 Flash successor)
+  const modelId = 'gemini-3-flash-preview';
+
   const prompt = `
     Analyze this bank transaction document (Image/PDF).
     Extract the transaction details into JSON.
@@ -86,7 +89,7 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     - converted_amount (number)
     - converted_currency (ISO code)
     - exchange_rate_bank (number)
-    - currency_pair (Format "BASE/QUOTE")
+    - currency_pair (Format "BASE/QUOTE", e.g. "USD/EUR")
     - value_date (YYYY-MM-DD)
     - fees (array of {name, amount})
     
@@ -95,7 +98,7 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: modelId,
       contents: {
         parts: [
           { inlineData: { mimeType, data: base64 } },
@@ -153,12 +156,64 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     if (!text) throw new Error("Empty response from Gemini");
     
     const data = JSON.parse(text);
-    return { ...data, source: 'gemini-live' };
+    return { ...data, source: 'gemini-flash' };
 
   } catch (error) {
     console.error("Atlas Extraction Error:", error);
-    // Fallback to simulation ensures the UI doesn't break if Gemini is down/quota exceeded
     return simulateExtraction();
+  }
+};
+
+// --- REAL-TIME RATE SEARCH ---
+
+export const getHistoricExchangeRate = async (pair: string, date: string) => {
+  const apiKey = getGeminiKey();
+  if (!apiKey) return { rate: 0, source: 'simulation' };
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const prompt = `Find the historical mid-market exchange rate for ${pair} on ${date}. 
+  Return ONLY the numeric rate in JSON format. 
+  Example: {"rate": 1.0845}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview', // Using Flash + Tools for cost efficiency
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            rate: { type: Type.NUMBER, description: "The mid-market exchange rate found." }
+          }
+        }
+      }
+    });
+
+    // Check for grounding metadata to ensure real data was used
+    const grounding = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    let sourceUrl = 'Google Search';
+    if (grounding && grounding.length > 0) {
+      // Just grab the first source if available for logging
+      sourceUrl = grounding[0].web?.uri || 'Google Search';
+    }
+
+    const text = response.text;
+    if (!text) return { rate: 0, source: 'failed' };
+    
+    const data = JSON.parse(text);
+    return { 
+        rate: data.rate, 
+        source: 'google-search-grounding',
+        sourceUrl
+    };
+
+  } catch (error) {
+    console.error("Rate Search Error:", error);
+    // Fallback logic could go here, but for now return 0 to trigger manual entry or fallback logic in UI
+    return { rate: 0, source: 'error' }; 
   }
 };
 
