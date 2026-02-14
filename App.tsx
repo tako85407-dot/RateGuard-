@@ -6,7 +6,7 @@ import Auth from './components/Auth';
 import Onboarding from './components/Onboarding';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AppView, UserProfile, Organization } from './types';
-import { auth, onAuthStateChanged, syncUserAndOrg, signOut, finishMagicLinkSignIn } from './services/firebase';
+import { auth, onAuthStateChanged, syncUserAndOrg, signOut, finishMagicLinkSignIn, listenToOrg } from './services/firebase';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 
@@ -108,6 +108,16 @@ const App: React.FC = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // 3. Org Listener for Credit Sync
+  useEffect(() => {
+     if (userProfile?.orgId) {
+         const unsubOrg = listenToOrg(userProfile.orgId, (updatedOrg) => {
+             setOrgProfile(updatedOrg);
+         });
+         return () => unsubOrg();
+     }
+  }, [userProfile?.orgId]);
 
   const handleLogout = async () => {
     await signOut();

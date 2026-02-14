@@ -1,4 +1,5 @@
 
+
 export interface Comment {
   id: string;
   user: string;
@@ -9,9 +10,10 @@ export interface Comment {
 export interface TeamMember {
   id: string;
   name: string;
-  role: 'Auditor' | 'Controller' | 'Manager' | 'Processor';
+  role: 'Auditor' | 'Controller' | 'Manager' | 'Processor' | 'admin' | 'member';
   status: 'Online' | 'Offline';
   activity: string;
+  email?: string;
 }
 
 export interface FeeItem {
@@ -144,6 +146,7 @@ export interface Organization {
   members: string[];
   plan: 'free' | 'enterprise';
   maxSeats: number;
+  credits: number; // Shared organization credits
   createdAt: number;
 }
 
@@ -165,7 +168,7 @@ export interface UserProfile {
   displayName: string | null;
   orgId?: string;
   role: 'admin' | 'member';
-  credits: number;
+  credits: number; // Legacy, referenced but logic moved to Org
   companyName?: string;
   country?: string;
   taxID?: string;

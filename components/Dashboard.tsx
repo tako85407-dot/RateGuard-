@@ -119,8 +119,8 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
   const renderView = () => {
     switch (currentView) {
       case 'dashboard': return <DashboardHome quotes={quotes} onViewChange={onViewChange} onUpdateQuote={updateQuote} />;
-      // Pass isEnterprise down to IntelligenceFeed for credit logic
-      case 'quotes': return <IntelligenceFeed quotes={quotes} onAddQuote={addQuote} onUpdateQuote={updateQuote} userProfile={userProfile} isEnterprise={isEnterprise} onProfileUpdate={onProfileUpdate} />;
+      // Pass orgProfile and isEnterprise down to IntelligenceFeed for credit logic
+      case 'quotes': return <IntelligenceFeed quotes={quotes} onAddQuote={addQuote} onUpdateQuote={updateQuote} userProfile={userProfile} orgProfile={orgProfile} isEnterprise={isEnterprise} onProfileUpdate={onProfileUpdate} />;
       case 'history': return <QuoteHistory quotes={quotes} />;
       case 'analysis': return <LaneAnalysis quotes={quotes} />;
       case 'team': return <TeamWorkspace />;
@@ -206,9 +206,9 @@ const Dashboard: React.FC<DashboardProps> = ({ currentView, onViewChange, onLogo
           <div className="flex items-center gap-4">
             {/* Credit / Plan Display */}
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${isEnterprise ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-zinc-900 border-zinc-800 text-zinc-400'}`}>
-                <Zap size={12} className={isEnterprise ? "fill-emerald-500" : userProfile.credits > 0 ? "fill-yellow-500 text-yellow-500" : ""} />
+                <Zap size={12} className={isEnterprise ? "fill-emerald-500" : (orgProfile.credits > 0 ? "fill-yellow-500 text-yellow-500" : "")} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
-                  {isEnterprise ? 'UNLIMITED' : `${userProfile.credits} CREDITS`}
+                  {isEnterprise ? 'UNLIMITED' : `${orgProfile.credits ?? 0} CREDITS`}
                 </span>
             </div>
 

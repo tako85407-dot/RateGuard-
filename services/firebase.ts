@@ -33,7 +33,7 @@ import {
   arrayUnion,
   runTransaction
 } from "firebase/firestore";
-import { UserProfile, QuoteData, Audit, Organization } from "../types";
+import { UserProfile, QuoteData, Audit, Organization, TeamMember } from "../types";
 
 // Helper for Robust Env Vars
 const getEnv = (key: string) => {
@@ -107,6 +107,7 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
             members: ['demo'],
             plan: 'enterprise',
             maxSeats: 10,
+            credits: 100,
             createdAt: Date.now()
         } 
     };
@@ -121,7 +122,7 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
         email: user.email,
         displayName: user.displayName || 'Agent',
         role: 'member',
-        credits: 5,
+        credits: 5, // Legacy field
         hasSeenIntro: false,
         createdAt: Date.now(),
         lastSeen: Date.now(),
@@ -134,6 +135,9 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
       await setDoc(userRef, JSON.parse(JSON.stringify(defaultProfile)));
       await setDoc(doc(db, "settings", user.uid), { profitThreshold: 2.0, autoAudit: true });
       userSnap = await getDoc(userRef);
+    } else {
+        // Update last seen
+        await updateDoc(userRef, { lastSeen: Date.now() });
     }
 
     const userData = { ...defaultProfile, ...userSnap.data() } as UserProfile;
@@ -157,6 +161,15 @@ export const syncUserAndOrg = async (user: FirebaseUser): Promise<{ userProfile:
   }
 };
 
+export const listenToOrg = (orgId: string, cb: (org: Organization) => void) => {
+    if (!isConfigValid || !orgId) return () => {};
+    return onSnapshot(doc(db, "organizations", orgId), (docSnap) => {
+        if (docSnap.exists()) {
+            cb({ id: docSnap.id, ...docSnap.data() } as Organization);
+        }
+    });
+};
+
 // --- ORG MANAGEMENT ---
 export const createOrganization = async (userId: string, orgData: Partial<Organization>) => {
   if (!isConfigValid) return "demo-org-id";
@@ -166,6 +179,7 @@ export const createOrganization = async (userId: string, orgData: Partial<Organi
     members: [userId],
     plan: 'free',
     maxSeats: 5,
+    credits: 10, // Initial Shared Credits
     createdAt: Date.now()
   };
   const orgRef = await addDoc(collection(db, "organizations"), newOrgData);
@@ -197,6 +211,28 @@ export const joinOrganization = async (userId: string, orgId: string) => {
 export const markIntroSeen = async (userId: string) => {
   if (!isConfigValid) return true;
   try { await updateDoc(doc(db, "users", userId), { hasSeenIntro: true }); return true; } catch (e) { return false; }
+};
+
+export const fetchTeamMembers = async (orgId: string): Promise<TeamMember[]> => {
+    if (!isConfigValid) return [];
+    try {
+        const q = query(collection(db, "users"), where("orgId", "==", orgId));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => {
+            const data = d.data();
+            return {
+                id: d.id,
+                name: data.displayName || 'Unknown Agent',
+                role: data.role || 'member',
+                status: 'Online', // Inference
+                activity: `Last active ${new Date(data.lastSeen || Date.now()).toLocaleDateString()}`,
+                email: data.email
+            } as TeamMember;
+        });
+    } catch (e) {
+        console.error("Failed to fetch team", e);
+        return [];
+    }
 };
 
 // --- AUTH WRAPPERS ---
@@ -342,10 +378,9 @@ export const saveQuoteToFirestore = async (
         bank: quoteData.bank
     });
 
-    // Attempt to update credits, but don't fail the whole upload if this specific write fails
-    // This often fixes "permission-denied" if user rules are tighter than quote rules
+    // UPDATED: Deduct credit from ORGANIZATION, not user
     try {
-        await updateDoc(doc(db, "users", userId), { credits: increment(-1) });
+        await updateDoc(doc(db, "organizations", orgId), { credits: increment(-1) });
     } catch (creditError) {
         console.warn("Credit update failed (non-fatal):", creditError);
     }

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Users, UserPlus, Clock, Zap, Shield, CheckCircle, Copy, AlertCircle, Loader2 } from 'lucide-react';
-import { TeamMember } from '../types';
-import { auth, addTeammateByUID } from '../services/firebase';
+import { TeamMember, UserProfile } from '../types';
+import { auth, addTeammateByUID, fetchTeamMembers } from '../services/firebase';
 import { motion } from 'framer-motion';
 
 const containerVariants = {
@@ -22,8 +23,76 @@ const TeamWorkspace: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState<{type: 'success' | 'error', msg: string} | null>(null);
   const [copied, setCopied] = useState(false);
+  
+  // Real Data State
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
 
   const currentUid = auth.currentUser?.uid || '';
+
+  useEffect(() => {
+    // Load Members
+    const loadTeam = async () => {
+       if (!currentUid) return;
+       // We fetch the team members based on the org ID from the current user's token or session
+       // However, fetchTeamMembers expects orgId. We can get it if we stored the user profile context,
+       // but here we might need to rely on the current user's token or just re-fetch profile.
+       // For this component, let's assume the Dashboard has passed the orgId down contextually,
+       // OR we fetch it inside the fetchTeamMembers logic if we passed the User ID.
+       
+       // Optimized: In a real app, we'd pass orgId as prop. 
+       // For now, we'll assume the auth user is part of an org and we fetch via a helper.
+       // Note: We need the orgId. We'll use a hack or update props.
+       // Let's assume the user has a profile loaded. Since this component doesn't take props currently,
+       // We will do a quick fetch or assume we can get it from a global store.
+       // Simplest fix: Just fetch the members if we have the auth object.
+       
+       // Actually, we'll need to fetch the current user's orgID first if not available.
+       // But wait! We updated the App.tsx to load profile. We should pass it in.
+       // Since the user didn't ask to change Dashboard signature for this specifically, 
+       // we will try to get it from the user document if possible, or just rely on the fact 
+       // that fetchTeamMembers takes an orgId.
+       
+       // Workaround: We will use a listener in App.tsx to pass data, but here we might need to fetch it.
+       // Let's assume we can get the orgId from the current user's custom claims or doc.
+       
+       // Ideally this component should receive `orgId` as a prop.
+       // I'll update it to use a placeholder or assume the user knows their orgId.
+    };
+    
+    // Actually, let's fix it properly. The Dashboard renders this.
+    // I can't change the component signature without changing Dashboard.
+    // I will try to fetch the team members by getting the current user's profile first inside this effect.
+    const fetchMyTeam = async () => {
+        setLoadingMembers(true);
+        // This is slightly inefficient but robust without prop drilling refactor in Dashboard
+        try {
+            // We can fetch the team by searching for users who share the same OrgID as current user
+            // We need to know current user's OrgID.
+            // Let's import `syncUserAndOrg` or `getDoc` logic.
+            // Or better: The fetchTeamMembers function in firebase.ts can be updated to take userId and find their org.
+            
+            // For now, let's use the `auth` user to find the org ID from their profile doc.
+            // We'll do a direct fetch here.
+            const { getDoc, doc, getFirestore } = await import("firebase/firestore");
+            const db = getFirestore();
+            const userSnap = await getDoc(doc(db, "users", currentUid));
+            if (userSnap.exists()) {
+                const orgId = userSnap.data().orgId;
+                if (orgId) {
+                    const team = await fetchTeamMembers(orgId);
+                    setMembers(team);
+                }
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingMembers(false);
+        }
+    };
+    
+    fetchMyTeam();
+  }, [currentUid]);
 
   const handleCopyUid = () => {
     navigator.clipboard.writeText(currentUid);
@@ -41,18 +110,13 @@ const TeamWorkspace: React.FC = () => {
     if (result.success) {
       setFeedback({ type: 'success', msg: 'Operator added to network.' });
       setInviteUid('');
+      // Refresh list
+      window.location.reload(); // Simple refresh to see new member
     } else {
       setFeedback({ type: 'error', msg: result.error || 'Failed to add operator.' });
     }
     setIsLoading(false);
   };
-
-  const members: TeamMember[] = [
-    { id: '1', name: 'John Doe', role: 'Manager', status: 'Online', activity: 'Reviewed 12 flagged quotes' },
-    { id: '2', name: 'Sarah Miller', role: 'Processor', status: 'Online', activity: 'Ingested 42 carrier quotes' },
-    { id: '3', name: 'Mike Ross', role: 'Processor', status: 'Offline', activity: 'Last sync: 2 hours ago' },
-    { id: '4', name: 'Atlas AI', role: 'Processor', status: 'Online', activity: 'Auditing global surcharge feed' }
-  ];
 
   return (
     <motion.div 
@@ -144,7 +208,19 @@ const TeamWorkspace: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/30">
-                  {members.map((m, i) => (
+                  {loadingMembers ? (
+                      <tr>
+                          <td colSpan={4} className="text-center py-10">
+                              <Loader2 className="animate-spin mx-auto text-blue-500" />
+                          </td>
+                      </tr>
+                  ) : members.length === 0 ? (
+                      <tr>
+                          <td colSpan={4} className="text-center py-10 text-zinc-500 text-sm">
+                              No team members found. Add someone to collaborate!
+                          </td>
+                      </tr>
+                  ) : members.map((m, i) => (
                     <motion.tr 
                       key={m.id} 
                       initial={{ opacity: 0, x: -10 }}
@@ -157,11 +233,14 @@ const TeamWorkspace: React.FC = () => {
                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs ${m.name === 'Atlas AI' ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>
                                 {m.name === 'Atlas AI' ? <Zap size={16} /> : m.name[0]}
                              </div>
-                             <span className="text-sm font-bold text-white">{m.name}</span>
+                             <div>
+                                <span className="text-sm font-bold text-white block">{m.name}</span>
+                                <span className="text-[10px] text-zinc-600 block">{m.email}</span>
+                             </div>
                           </div>
                        </td>
                        <td className="px-6 py-6">
-                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${m.role === 'Manager' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-800 text-zinc-500'}`}>
+                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${m.role === 'admin' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-800 text-zinc-500'}`}>
                              {m.role}
                           </span>
                        </td>
@@ -192,26 +271,12 @@ const TeamWorkspace: React.FC = () => {
               </p>
               <div className="space-y-4 pt-4 border-t border-zinc-800">
                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400">Daily Audit Quota</span>
-                    <span className="text-white font-bold">142 / 500</span>
+                    <span className="text-zinc-400">Team Size</span>
+                    <span className="text-white font-bold">{members.length} / 5</span>
                  </div>
                  <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-600 w-[28%]" />
+                    <div className="h-full bg-blue-600" style={{ width: `${(members.length / 5) * 100}%` }} />
                  </div>
-              </div>
-           </div>
-
-           <div className="p-8 bg-gradient-to-br from-indigo-900/50 to-blue-900/50 border border-blue-500/20 rounded-[2rem] space-y-4">
-              <h4 className="text-sm font-black text-white flex items-center gap-2 uppercase tracking-widest">
-                 <Clock size={16} /> Session History
-              </h4>
-              <div className="space-y-3">
-                 {[1,2,3].map(i => (
-                   <div key={i} className="flex items-center gap-3 text-xs">
-                      <CheckCircle size={14} className="text-emerald-500" />
-                      <span className="text-zinc-300">Manager approved batch #842</span>
-                   </div>
-                 ))}
               </div>
            </div>
         </motion.div>

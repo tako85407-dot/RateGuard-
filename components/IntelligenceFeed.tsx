@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData, getHistoricExchangeRate } from '../services/gemini';
 import { saveQuoteToFirestore } from '../services/firebase';
 import { calculateAllCosts } from '../services/calculations';
-import { QuoteData, UserProfile } from '../types';
+import { QuoteData, UserProfile, Organization } from '../types';
 import QuoteAnalysis from './QuoteAnalysis';
 
 interface IntelligenceFeedProps {
@@ -13,6 +13,7 @@ interface IntelligenceFeedProps {
   onAddQuote: (quote: QuoteData) => void;
   onUpdateQuote: (quote: QuoteData) => void;
   userProfile: UserProfile | null;
+  orgProfile?: Organization | null;
   isEnterprise: boolean;
   onProfileUpdate?: (updates: Partial<UserProfile>) => void;
 }
@@ -36,7 +37,7 @@ const itemVariants = {
   }
 };
 
-const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote, onUpdateQuote, userProfile, isEnterprise, onProfileUpdate }) => {
+const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote, onUpdateQuote, userProfile, orgProfile, isEnterprise, onProfileUpdate }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [statusText, setStatusText] = useState('Initializing Node...');
   const [activeQuoteId, setActiveQuoteId] = useState<string | null>(null);
@@ -51,7 +52,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 
     // Reset UI State
     setErrorMsg(null);
-    setStatusText("Encrypting Stream...");
+    setStatusText("Establishing Secure Handshake...");
     
     if (file.size > 5000000) { 
       setErrorMsg("File Size Exceeded. Must be under 5MB.");
@@ -59,8 +60,6 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       return;
     }
 
-    // Check simple login requirement instead of credit/enterprise lock
-    // "Make sure anyone who is logged in can upload a doc"
     if (!userProfile || !userProfile.uid) {
       setErrorMsg("Please log in to upload documents.");
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -68,9 +67,25 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
     }
     
     const currentUid = userProfile.uid;
-    const currentOrgId = userProfile.orgId || 'personal_workspace'; // Fallback if no org
+    const currentOrgId = userProfile.orgId || 'personal_workspace'; 
 
     setIsUploading(true);
+
+    // --- ARTIFICIAL DELAY ---
+    try {
+        const delaySteps = [
+            { text: "Verifying Org Credentials...", ms: 1500 },
+            { text: "Securing Data Pipeline...", ms: 1500 },
+            { text: "Allocating Neural Workers...", ms: 2000 }
+        ];
+
+        for (const step of delaySteps) {
+            setStatusText(step.text);
+            await new Promise(resolve => setTimeout(resolve, step.ms));
+        }
+    } catch (e) {
+        // Ignore delay errors
+    }
 
     const reader = new FileReader();
 
@@ -167,10 +182,8 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 
         if (saveResult.success) {
           onAddQuote(saveResult as unknown as QuoteData);
-          // Optional: Deduct credits if we want to keep that logic, or just allow free uploads as requested
-          if (!isEnterprise && onProfileUpdate && userProfile && userProfile.credits > 0) {
-              onProfileUpdate({ credits: Math.max(0, userProfile.credits - 1) });
-          }
+          // Deduct credits from UI immediately (optimistic update is handled by listener in App.tsx)
+          // Credits are now on Organization Level, not User Profile
         } else {
           throw new Error(saveResult.error || "Database Write Failed");
         }
@@ -242,7 +255,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
                   <Loader2 size={40} className="text-blue-500 animate-spin" />
                   <div className="space-y-1 text-center">
                      <div className="text-lg font-black text-white uppercase tracking-tight">{statusText}</div>
-                     <div className="text-xs text-blue-500 font-mono">Powered by Gemini 1.5 Flash</div>
+                     <div className="text-xs text-blue-500 font-mono">Running Neural Net inference...</div>
                   </div>
                 </motion.div>
               ) : (
