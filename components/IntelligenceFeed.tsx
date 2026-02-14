@@ -65,13 +65,21 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
+
+    // CHECK ORGANIZATION CREDITS
+    // The credits are shared across the organization (admin + members)
+    if (!isEnterprise && (orgProfile?.credits ?? 0) <= 0) {
+        setErrorMsg("Organization credits exhausted. Please upgrade to continue.");
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+    }
     
     const currentUid = userProfile.uid;
     const currentOrgId = userProfile.orgId || 'personal_workspace'; 
 
     setIsUploading(true);
 
-    // --- ARTIFICIAL DELAY ---
+    // --- ARTIFICIAL DELAY (5 Seconds) ---
     try {
         const delaySteps = [
             { text: "Verifying Org Credentials...", ms: 1500 },
@@ -136,8 +144,12 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
         );
 
         // 4. Merge Data
+        // IMPORTANT: Fallback for bank name to ensure it saves even if AI misses it
+        const extractedBankName = extractionResult.extraction?.bank_name;
+        const finalBankName = (extractedBankName && extractedBankName.length > 2) ? extractedBankName : "Unknown Bank";
+
         const finalQuoteData: Partial<QuoteData> = {
-          bank: extractionResult.extraction?.bank_name || "Unknown Bank",
+          bank: finalBankName,
           pair: pair,
           amount: txDetails.original_amount || 0,
           exchangeRate: txDetails.exchange_rate_bank || 0,
@@ -182,8 +194,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
 
         if (saveResult.success) {
           onAddQuote(saveResult as unknown as QuoteData);
-          // Deduct credits from UI immediately (optimistic update is handled by listener in App.tsx)
-          // Credits are now on Organization Level, not User Profile
+          // Credit deduction happens in saveQuoteToFirestore against the Organization document
         } else {
           throw new Error(saveResult.error || "Database Write Failed");
         }

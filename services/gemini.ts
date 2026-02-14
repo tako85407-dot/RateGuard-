@@ -77,10 +77,12 @@ export const extractQuoteData = async (base64: string, mimeType: string = 'image
     Analyze this bank transaction document (Image/PDF).
     Extract the transaction details into JSON.
     
-    CRITICAL: Look for all fee line items (Wire Fee, FX Fee, Commission, etc.) and list them individually.
+    CRITICAL INSTRUCTIONS:
+    1. **Bank Name**: Look for the logo or header text. Extract the EXACT name of the financial institution. Do NOT restrict yourself to a list of major banks. If it looks like a bank or money transfer service, record its name.
+    2. **Fees**: Look for all fee line items (Wire Fee, FX Fee, Commission, etc.) and list them individually.
     
     Required Fields:
-    - bank_name
+    - bank_name (String. The name of the bank/provider found in the doc.)
     - transaction_reference
     - sender_name
     - beneficiary_name
