@@ -199,10 +199,18 @@ export const listenToUser = (userId: string, cb: (user: UserProfile) => void) =>
 // --- REAL-TIME QUOTES ---
 export const listenToOrgQuotes = (orgId: string, cb: (quotes: QuoteData[]) => void) => {
   if (!isConfigValid || !orgId) return () => {};
-  const q = query(collection(db, "quotes"), where("orgId", "==", orgId), orderBy("createdAt", "desc"));
+  
+  // NOTE: removed orderBy("createdAt", "desc") to prevent "Missing Index" errors in Firebase
+  // We sort on the client side instead to ensure data always loads for users
+  const q = query(collection(db, "quotes"), where("orgId", "==", orgId));
+  
   return onSnapshot(q, (snapshot) => {
     const quotes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuoteData));
+    // Client-side sort descending
+    quotes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     cb(quotes);
+  }, (error) => {
+    console.error("Error listening to org quotes:", error);
   });
 };
 
@@ -350,10 +358,12 @@ export const onAuthStateChanged = (cb: (user: FirebaseUser | null) => void) => {
 export const fetchOrgQuotes = async (orgId: string): Promise<QuoteData[]> => {
   if (!isConfigValid) return [];
   try {
-    const q = query(collection(db, "quotes"), where("orgId", "==", orgId), orderBy("createdAt", "desc"));
+    // Also use client-side sort here to be safe
+    const q = query(collection(db, "quotes"), where("orgId", "==", orgId));
     const querySnapshot = await getDocs(q);
     const quotes: QuoteData[] = [];
     querySnapshot.forEach((doc) => quotes.push({ id: doc.id, ...doc.data() } as QuoteData));
+    quotes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return quotes;
   } catch (error) { console.error(error); return []; }
 };

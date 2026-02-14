@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { FileText, Loader2, AlertTriangle, X, Upload, ScanLine, Cpu } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { extractQuoteData, getHistoricExchangeRate } from '../services/gemini';
@@ -37,14 +37,14 @@ const itemVariants = {
   }
 };
 
-const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote, onUpdateQuote, userProfile, orgProfile, isEnterprise, onProfileUpdate }) => {
+const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes = [], onAddQuote, onUpdateQuote, userProfile, orgProfile, isEnterprise, onProfileUpdate }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [statusText, setStatusText] = useState('Initializing Node...');
   const [activeQuoteId, setActiveQuoteId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const activeQuote = quotes?.find(q => q.id === activeQuoteId);
+  const activeQuote = useMemo(() => quotes?.find(q => q.id === activeQuoteId), [quotes, activeQuoteId]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -303,7 +303,7 @@ const IntelligenceFeed: React.FC<IntelligenceFeedProps> = ({ quotes, onAddQuote,
               Recent Analysis Stream
             </motion.h3>
             
-            {quotes.length === 0 ? (
+            {!quotes || quotes.length === 0 ? (
                <motion.div variants={itemVariants} className="py-20 text-center space-y-4">
                   <div className="w-20 h-20 bg-zinc-900 rounded-full flex items-center justify-center mx-auto border border-zinc-800 border-dashed text-zinc-700">
                      <ScanLine size={32} />
